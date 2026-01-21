@@ -7,6 +7,30 @@ import (
 	"KubernetesSecurityMonitoringSystem/internal/models"
 )
 
+type Storage interface {
+	AddUser(u models.User) error
+	GetUser(id string) (models.User, error)
+	GetUserByEmail(email string) (models.User, error)
+	GetAllUsers() []models.User
+	UpdateUser(u models.User) error
+	DeleteUser(id string) error
+
+	AddCluster(c models.Cluster) error
+	GetClusters() []models.Cluster
+	GetCluster(id string) (models.Cluster, error)
+	DeleteCluster(id string) error
+
+	AddPolicy(p models.Policy) error
+	GetPolicies() []models.Policy
+	GetPolicy(id string) (models.Policy, error)
+	DeletePolicy(id string) error
+
+	AddAlert(a models.Alert)
+	GetAlerts() []models.Alert
+	AddReport(r models.IncidentReport)
+	GetReports() []models.IncidentReport
+}
+
 type MemoryStorage struct {
 	users    map[string]models.User
 	clusters map[string]models.Cluster

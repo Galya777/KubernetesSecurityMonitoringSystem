@@ -3,8 +3,6 @@ To transition this project from its current structural prototype to a "perfect,"
 1. Core Kubernetes Integration (internal/kubernetes)
 The system currently defines cluster models but doesn't interact with actual Kubernetes clusters.
 •
-[ ] Implement K8s Client Logic: Use the k8s.io/client-go library to implement the logic for connecting to clusters using the KubeConfig provided in the Cluster model.
-•
 [ ] Real-time Metrics Collection: Replace the mock Metrics struct data with real data fetched from the Kubernetes Metrics API (or Prometheus queries).
 •
 [ ] Resource Discovery: Implement logic to list actual pods, namespaces, and workloads as required by the security policies.

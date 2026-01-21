@@ -14,7 +14,15 @@ import (
 )
 
 func main() {
-	store := storage.NewMemoryStorage()
+	var store storage.Storage
+	var err error
+
+	store, err = storage.NewDatabaseStorage()
+	if err != nil {
+		log.Printf("Failed to connect to database: %v. Falling back to memory storage.", err)
+		store = storage.NewMemoryStorage()
+	}
+
 	k8sMgr := kubernetes.NewClusterManager()
 
 	// Handlers

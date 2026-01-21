@@ -13,7 +13,7 @@ import (
 )
 
 type ResourceHandler struct {
-	Storage *storage.MemoryStorage
+	Storage storage.Storage
 	K8s     *kubernetes.ClusterManager
 }
 

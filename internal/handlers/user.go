@@ -11,7 +11,7 @@ import (
 )
 
 type UserHandler struct {
-	Storage *storage.MemoryStorage
+	Storage storage.Storage
 }
 
 func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {

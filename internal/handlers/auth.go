@@ -21,7 +21,7 @@ type Claims struct {
 }
 
 type AuthHandler struct {
-	Storage *storage.MemoryStorage
+	Storage storage.Storage
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
