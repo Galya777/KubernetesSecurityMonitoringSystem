@@ -1,0 +1,67 @@
+{{define "content"}}
+<div id="app">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <h2 class="text-center">Register</h2>
+            <form @submit.prevent="register">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label>First Name</label>
+                        <input type="text" v-model="form.first_name" class="form-control" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label>Last Name</label>
+                        <input type="text" v-model="form.last_name" class="form-control" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label>Email</label>
+                    <input type="email" v-model="form.email" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>Password</label>
+                    <input type="password" v-model="form.password" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>Token Key (Optional)</label>
+                    <input type="text" v-model="token_key" class="form-control">
+                </div>
+                <button type="submit" class="btn btn-success w-100">Register</button>
+            </form>
+            <p v-if="error" class="text-danger mt-2">[[ error ]]</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            form: {
+                first_name: '',
+                last_name: '',
+                email: '',
+                password: '',
+                token_keys: []
+            },
+            token_key: '',
+            error: ''
+        },
+        methods: {
+            register() {
+                if (this.token_key) {
+                    this.form.token_keys = [this.token_key];
+                }
+                axios.post('/api/register', this.form)
+                    .then(() => {
+                        window.location.href = '/login';
+                    })
+                    .catch(err => {
+                        this.error = 'Registration failed. Email might already be in use.';
+                    });
+            }
+        }
+    });
+</script>
+{{end}}

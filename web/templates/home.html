@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="jumbotron">
+    <h1 class="display-4">Welcome to KSMS</h1>
+    <p class="lead">Kubernetes Security Monitoring System enabling real-time monitoring and threat detection.</p>
+    <hr class="my-4">
+    <p>Monitor security states, define policies, and respond to threats in your K8s clusters.</p>
+    <a class="btn btn-primary btn-lg" href="/register" role="button">Get Started</a>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <h3>Real-time Alerts</h3>
+        <p>Stay updated with live security incidents via SSE/WebSockets.</p>
+    </div>
+    <div class="col-md-4">
+        <h3>Cluster Health</h3>
+        <p>Monitor the health and security metrics of all your connected clusters.</p>
+    </div>
+    <div class="col-md-4">
+        <h3>Policy Management</h3>
+        <p>Define and enforce security policies across different namespaces.</p>
+    </div>
+</div>
+{{end}}

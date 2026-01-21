@@ -1,0 +1,45 @@
+{{define "content"}}
+<div id="app">
+    <div class="row justify-content-center">
+        <div class="col-md-4">
+            <h2 class="text-center">Login</h2>
+            <form @submit.prevent="login">
+                <div class="mb-3">
+                    <label>Email</label>
+                    <input type="email" v-model="email" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>Password</label>
+                    <input type="password" v-model="password" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Login</button>
+            </form>
+            <p v-if="error" class="text-danger mt-2">[[ error ]]</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            email: '',
+            password: '',
+            error: ''
+        },
+        methods: {
+            login() {
+                axios.post('/api/login', { email: this.email, password: this.password })
+                    .then(response => {
+                        localStorage.setItem('token', response.data.token);
+                        window.location.href = '/';
+                    })
+                    .catch(err => {
+                        this.error = 'Invalid credentials';
+                    });
+            }
+        }
+    });
+</script>
+{{end}}

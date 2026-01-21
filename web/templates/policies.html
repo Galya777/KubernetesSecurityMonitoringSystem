@@ -1,0 +1,70 @@
+{{define "content"}}
+<div id="app">
+    <h2>Security Policies</h2>
+    <div class="mb-4">
+        <button class="btn btn-primary" @click="showForm = !showForm">[[ showForm ? 'Close' : 'Add Policy' ]]</button>
+    </div>
+
+    <div v-if="showForm" class="card mb-4 p-3">
+        <form @submit.prevent="createPolicy">
+            <div class="mb-3">
+                <label>Name</label>
+                <input type="text" v-model="newPolicy.name" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label>Description</label>
+                <textarea v-model="newPolicy.description" class="form-control"></textarea>
+            </div>
+            <div class="mb-3">
+                <label>Namespace</label>
+                <input type="text" v-model="newPolicy.namespace" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-success">Save Policy</button>
+        </form>
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Namespace</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr v-for="policy in policies" :key="policy.id">
+                <td>[[ policy.name ]]</td>
+                <td>[[ policy.namespace ]]</td>
+                <td>[[ policy.description ]]</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            policies: [],
+            showForm: false,
+            newPolicy: { name: '', description: '', namespace: '' }
+        },
+        mounted() {
+            this.fetchPolicies();
+        },
+        methods: {
+            fetchPolicies() {
+                axios.get('/api/policies').then(res => this.policies = res.data);
+            },
+            createPolicy() {
+                axios.post('/api/policies', this.newPolicy).then(() => {
+                    this.fetchPolicies();
+                    this.showForm = false;
+                    this.newPolicy = { name: '', description: '', namespace: '' };
+                });
+            }
+        }
+    });
+</script>
+{{end}}

@@ -1,0 +1,55 @@
+{{define "content"}}
+<div id="app">
+    <h2>Kubernetes Clusters</h2>
+    <div v-if="loading">Loading...</div>
+    <div v-else>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>CPU Usage</th>
+                    <th>Memory Usage</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="cluster in clusters" :key="cluster.id">
+                    <td>[[ cluster.name ]]</td>
+                    <td><span class="badge bg-success">[[ cluster.status ]]</span></td>
+                    <td>[[ cluster.metrics.cpu_usage ]]%</td>
+                    <td>[[ cluster.metrics.memory_usage ]] Mi</td>
+                    <td><button class="btn btn-danger btn-sm" @click="deleteCluster(cluster.id)">Remove</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            clusters: [],
+            loading: true
+        },
+        mounted() {
+            this.fetchClusters();
+        },
+        methods: {
+            fetchClusters() {
+                axios.get('/api/clusters')
+                    .then(response => {
+                        this.clusters = response.data;
+                        this.loading = false;
+                    });
+            },
+            deleteCluster(id) {
+                axios.delete('/api/clusters/' + id)
+                    .then(() => this.fetchClusters());
+            }
+        }
+    });
+</script>
+{{end}}

@@ -1,0 +1,37 @@
+{{define "content"}}
+<div id="app">
+    <h2>Real-time Alerts</h2>
+    <div class="list-group">
+        <div v-for="alert in alerts" :key="alert.id" class="list-group-item list-group-item-danger">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1">[[ alert.severity ]]</h5>
+                <small>[[ alert.timestamp ]]</small>
+            </div>
+            <p class="mb-1">[[ alert.message ]]</p>
+            <small>Cluster: [[ alert.cluster_id ]]</small>
+        </div>
+        <div v-if="alerts.length === 0" class="text-center p-5">
+            <p>Waiting for alerts...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            alerts: []
+        },
+        mounted() {
+            const eventSource = new EventSource('/api/tests');
+            eventSource.onmessage = (event) => {
+                const newAlerts = JSON.parse(event.data);
+                if (newAlerts && newAlerts.length > 0) {
+                    this.alerts = newAlerts;
+                }
+            };
+        }
+    });
+</script>
+{{end}}

@@ -1,0 +1,84 @@
+{{define "content"}}
+<div id="app">
+    <h2>Personal Profile</h2>
+    <div v-if="user" class="card p-4">
+        <form @submit.prevent="updateProfile">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label>First Name</label>
+                    <input type="text" v-model="user.first_name" class="form-control">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label>Last Name</label>
+                    <input type="text" v-model="user.last_name" class="form-control">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label>Email</label>
+                <input type="email" v-model="user.email" class="form-control" readonly>
+            </div>
+            <div class="mb-3">
+                <label>Role</label>
+                <input type="text" :value="user.role" class="form-control" readonly>
+            </div>
+            <div class="mb-3">
+                <label>Token Keys</label>
+                <ul>
+                    <li v-for="key in user.token_keys">[[ key ]]</li>
+                </ul>
+                <div class="input-group">
+                    <input type="text" v-model="newToken" class="form-control" placeholder="Add more token keys">
+                    <button type="button" class="btn btn-outline-secondary" @click="addToken">Add</button>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Profile</button>
+            <button type="button" class="btn btn-danger float-end" @click="deregister">Deregister from OKTS</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            user: null,
+            newToken: '',
+            userId: '' // Should be retrieved from token or session
+        },
+        mounted() {
+            // In a real app, we'd get the ID from the JWT claims. 
+            // For this demo, let's assume we store it in localStorage after login
+            const token = localStorage.getItem('token');
+            if (token) {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                this.userId = payload.user_id;
+                this.fetchUser();
+            }
+        },
+        methods: {
+            fetchUser() {
+                axios.get('/api/users/' + this.userId).then(res => this.user = res.data);
+            },
+            addToken() {
+                if (this.newToken) {
+                    if (!this.user.token_keys) this.user.token_keys = [];
+                    this.user.token_keys.push(this.newToken);
+                    this.newToken = '';
+                }
+            },
+            updateProfile() {
+                axios.put('/api/users/' + this.userId, this.user).then(() => alert('Profile updated!'));
+            },
+            deregister() {
+                if (confirm('Are you sure you want to deregister?')) {
+                    axios.delete('/api/users/' + this.userId).then(() => {
+                        localStorage.removeItem('token');
+                        window.location.href = '/';
+                    });
+                }
+            }
+        }
+    });
+</script>
+{{end}}

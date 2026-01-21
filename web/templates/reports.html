@@ -1,0 +1,43 @@
+{{define "content"}}
+<div id="app">
+    <h2>Incident Reports</h2>
+    <div v-if="loading">Loading...</div>
+    <div v-else>
+        <div v-for="report in reports" :key="report.id" class="card mb-3">
+            <div class="card-header d-flex justify-content-between">
+                <span>Report #[[ report.id ]]</span>
+                <small>[[ report.timestamp ]]</small>
+            </div>
+            <div class="card-body">
+                <p><strong>Alert ID:</strong> [[ report.alert_id ]]</p>
+                <p><strong>Details:</strong> [[ report.details ]]</p>
+                <p><strong>Action Taken:</strong> [[ report.action_taken ]]</p>
+            </div>
+        </div>
+        <div v-if="reports.length === 0" class="text-center p-5">
+            <p>No incident reports found.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            reports: [],
+            loading: true
+        },
+        mounted() {
+            // Mapping /reports to /api/tests/{testId} as per requirement 4.8
+            // For general view, we might need a list of all reports
+            axios.get('/api/tests/all').then(res => {
+                this.reports = res.data;
+                this.loading = false;
+            }).catch(() => {
+                this.loading = false;
+            });
+        }
+    });
+</script>
+{{end}}

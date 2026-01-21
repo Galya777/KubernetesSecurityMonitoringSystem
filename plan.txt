@@ -1,0 +1,62 @@
+Checklist for Finalizing the Kubernetes Security Monitoring System (KSMS)
+To transition this project from its current structural prototype to a "perfect," production-ready system, you should focus on the following key areas. These tasks cover backend functionality, real integrations, data persistence, and frontend refinements.
+1. Core Kubernetes Integration (internal/kubernetes)
+The system currently defines cluster models but doesn't interact with actual Kubernetes clusters.
+•
+[ ] Implement K8s Client Logic: Use the k8s.io/client-go library to implement the logic for connecting to clusters using the KubeConfig provided in the Cluster model.
+•
+[ ] Real-time Metrics Collection: Replace the mock Metrics struct data with real data fetched from the Kubernetes Metrics API (or Prometheus queries).
+•
+[ ] Resource Discovery: Implement logic to list actual pods, namespaces, and workloads as required by the security policies.
+2. Real-time Security Monitoring & Alerts
+The current alert system uses a ticker and a placeholder slice.
+•
+[ ] Implement Event Watchers: Use Kubernetes "Watch" API to monitor events (e.g., Pod crashes, unauthorized access attempts, or policy violations) and push them to the Alerts stream.
+•
+[ ] WebSocket/SSE Enhancement: Robustify the SSE implementation in ResourceHandler.GetAlerts to handle reconnects and filter alerts by cluster or severity.
+•
+[ ] Incident Response Logic: Implement the "Incident Response" use case (UC 2.7). For example, allow the system to automatically delete or isolate a pod when a critical security violation is detected.
+3. Persistent Storage (internal/storage)
+The MemoryStorage is excellent for testing but loses all data on restart.
+•
+[ ] Database Integration: Implement a persistent storage layer using a database like PostgreSQL or MongoDB.
+•
+[ ] Interface Definition: Create a Storage interface that both MemoryStorage and the new DBStorage implement, allowing for easy switching.
+•
+[ ] Migrations: Set up a database migration tool (e.g., golang-migrate) to manage schema changes.
+4. Security Policy Enforcement (internal/policies)
+Policies are currently just metadata stored in memory.
+•
+[ ] Policy Engine: Implement a logic layer that evaluates the defined policies against the current state of the Kubernetes clusters.
+•
+[ ] Namespace/Workload Assignment: Finalize the logic that applies specific policies to specific namespaces as described in UC 2.5.
+5. Frontend Refinements (web/templates & static)
+The frontend uses basic templates and CDN-linked scripts.
+•
+[ ] Vue.js State Management: For a "perfect" feel, consider moving from simple script tags to a more structured Vue.js setup or enhancing the current one with better error handling and loading states.
+•
+[ ] Dashboard Visualizations: Integrate a charting library (like Chart.js or D3.js) on the Clusters and Reports pages to visualize security trends and cluster health.
+•
+[ ] Static Asset Management: Move the CDN links to local versions in web/static/js and web/static/css for better reliability and offline development.
+6. Production Readiness & DevOps
+•
+[ ] Project Structure Realignment: Move the main entry point to cmd/ksms/main.go to follow standard Go project layouts.
+•
+[ ] Configuration Management: Use a library like viper to handle environment variables and config files (e.g., JWT keys, DB credentials).
+•
+[ ] Dockerization: Create a Dockerfile for the KSMS service and a docker-compose.yml that includes the application, a database, and a Prometheus instance.
+•
+[ ] Logging & Tracing: Replace standard log.Println with a structured logger (like zap or zerolog) and consider adding OpenTelemetry for tracing.
+7. Documentation & Testing
+•
+[ ] API Documentation: Generate Swagger/OpenAPI documentation for the REST API.
+•
+[ ] Automated Testing:
+◦
+Add Unit Tests for handlers and business logic.
+◦
+Add Integration Tests for the storage layer.
+◦
+Add E2E Tests for the critical auth and alert paths.
+•
+[ ] User Guide: Expand the About page or add a README.md explaining how to connect a new cluster and define the first security policy.
