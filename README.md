@@ -45,40 +45,12 @@ The system consists of a Go backend that communicates with Kubernetes API server
    cd KubernetesSecurityMonitoringSystem
    ```
 
-2. **Database Setup**:
-   За професионално портфолио и локална разработка имате няколко варианта за SQL база данни:
-
-   **Вариант А: Локално инсталиран PostgreSQL**
-   1. Отворете терминала или `psql` конзолата.
-   2. Създайте база данни:
-      ```sql
-      CREATE DATABASE ksms;
-      ```
-   3. (По желание) Създайте потребител, ако не искате да ползвате `postgres`:
-      ```sql
-      CREATE USER ksms_user WITH PASSWORD 'your_password';
-      GRANT ALL PRIVILEGES ON DATABASE ksms TO ksms_user;
-      ```
-
-   **Вариант Б: Docker (Препоръчително за разработка)**
-   Ако имате инсталиран Docker, стартирайте базата с една команда:
-   ```bash
-   docker run --name ksms-db -e POSTGRES_PASSWORD=password -e POSTGRES_DB=ksms -p 5432:5432 -d postgres
-   ```
-
-   **Вариант В: Облачна база данни (За онлайн портфолио)**
-   Ако искате проектът да работи онлайн, използвайте безплатни услуги като:
-   - [Supabase](https://supabase.com/)
-   - [Neon](https://neon.tech/)
-   - [ElephantSQL](https://www.elephantsql.com/)
-   Просто вземете `Connection String` и настройте променливите в стъпка 6.
-
-3. **Install Dependencies**:
+2. **Install Dependencies**:
    ```bash
    go mod download
    ```
 
-4. **Run the Application**:
+3. **Run the Application**:
    ```bash
    go run main.go
    ```
