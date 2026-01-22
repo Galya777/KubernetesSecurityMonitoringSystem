@@ -79,8 +79,8 @@ func main() {
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
-	log.Println("Server starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Println("Server starting on :8081")
+	log.Fatal(http.ListenAndServe(":8081", r))
 }
 
 func serveTemplate(name string) http.HandlerFunc {

@@ -49,8 +49,16 @@ The system consists of a Go backend that communicates with Kubernetes API server
    За професионално портфолио и локална разработка имате няколко варианта за SQL база данни:
 
    **Вариант А: Локално инсталиран PostgreSQL**
-   - Инсталирайте PostgreSQL от [официалния сайт](https://www.postgresql.org/download/).
-   - Създайте база данни `ksms`: `CREATE DATABASE ksms;`.
+   1. Отворете терминала или `psql` конзолата.
+   2. Създайте база данни:
+      ```sql
+      CREATE DATABASE ksms;
+      ```
+   3. (По желание) Създайте потребител, ако не искате да ползвате `postgres`:
+      ```sql
+      CREATE USER ksms_user WITH PASSWORD 'your_password';
+      GRANT ALL PRIVILEGES ON DATABASE ksms TO ksms_user;
+      ```
 
    **Вариант Б: Docker (Препоръчително за разработка)**
    Ако имате инсталиран Docker, стартирайте базата с една команда:
@@ -86,6 +94,7 @@ The application can be configured using environment variables:
 | `DB_USER` | PostgreSQL user | `postgres` |
 | `DB_PASSWORD` | PostgreSQL password | `password` |
 | `DB_NAME` | PostgreSQL database name | `ksms` |
+| `APP_PORT` | Application port | `8081` |
 | `JWT_SECRET` | Secret key for JWT signing | `your-secret-key` |
 
 ## 🧪 API Documentation
