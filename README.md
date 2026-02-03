@@ -62,9 +62,9 @@ The application can be configured using environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DB_HOST` | PostgreSQL host | `localhost` |
-| `DB_PORT` | PostgreSQL port | `5432` |
+| `DB_PORT` | PostgreSQL port | `5433` |
 | `DB_USER` | PostgreSQL user | `postgres` |
-| `DB_PASSWORD` | PostgreSQL password | `password` |
+| `DB_PASSWORD` | PostgreSQL password | `admin123` |
 | `DB_NAME` | PostgreSQL database name | `ksms` |
 | `APP_PORT` | Application port | `8081` |
 | `JWT_SECRET` | Secret key for JWT signing | `your-secret-key` |
@@ -89,6 +89,29 @@ The system uses the following tables in PostgreSQL:
 - `reports`: Detailed investigation reports for incidents.
 
 Database tables are automatically created on first run if they don't exist.
+
+## 🧪 Тестване и Демонстрация
+
+За да тествате системата бързо и лесно, следвайте тези стъпки:
+
+### 1. Автоматизирана Демонстрация
+Създаден е скрипт, който автоматично регистрира потребител, влиза в системата и тества основните API ендпоинти.
+
+1. Стартирайте сървъра:
+   ```bash
+   go run main.go
+   ```
+2. В друг терминал изпълнете демо скрипта:
+   ```bash
+   go run demo_script.go
+   ```
+
+### 2. Ръчно Тестване (Web UI)
+След като стартирате сървъра, отворете `http://localhost:8081` в браузъра си.
+
+- **Login**: Използвайте `admin@ksms.io` / `admin123` (след като сте пуснали демо скрипта).
+- **Clusters**: Добавете вашия клъстер, като поставите съдържанието на вашия `~/.kube/config` (base64 или текст).
+- **Alerts**: Наблюдавайте събитията в реално време.
 
 ## 👤 Author
 

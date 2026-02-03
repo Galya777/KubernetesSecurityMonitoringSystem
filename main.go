@@ -62,6 +62,8 @@ func main() {
 	api.HandleFunc("/tests", resH.GetAlerts).Methods("GET")           // As per 4.7 URI
 	api.HandleFunc("/tests/{testId}", resH.GetReports).Methods("GET") // As per 4.8 URI (mapping to reports)
 
+	api.HandleFunc("/actions/{action}", resH.HandleAction).Methods("POST")
+
 	// Metrics
 	r.Handle("/metrics", promhttp.Handler())
 

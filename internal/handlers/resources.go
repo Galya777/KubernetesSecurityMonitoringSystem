@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"KubernetesSecurityMonitoringSystem/internal/storage"
 
 	"github.com/gorilla/mux"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type ResourceHandler struct {
@@ -42,10 +45,18 @@ func (h *ResourceHandler) CreateCluster(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Fetch initial real metrics (Pod count)
+	// Fetch initial real metrics (Pod count, CPU, Memory)
 	if podCount, err := kubernetes.GetPodCount(client); err == nil {
 		c.Metrics.PodCount = podCount
 		c.Status = "Connected"
+
+		// Try to get CPU/Memory if Metrics Server is available
+		if mClient, err := h.K8s.GetMetricsClient(c.ID, c.KubeConfig); err == nil {
+			if cpu, mem, err := kubernetes.GetClusterMetrics(mClient); err == nil {
+				c.Metrics.CPUUsage = cpu
+				c.Metrics.MemoryUsage = mem
+			}
+		}
 	} else {
 		c.Status = "Error"
 	}
@@ -93,6 +104,9 @@ func (h *ResourceHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	severityFilter := r.URL.Query().Get("severity")
+	clusterFilter := r.URL.Query().Get("clusterId")
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -102,7 +116,14 @@ func (h *ResourceHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			alerts := h.Storage.GetAlerts()
-			data, _ := json.Marshal(alerts)
+			var filteredAlerts []models.Alert
+			for _, a := range alerts {
+				if (severityFilter == "" || a.Severity == severityFilter) &&
+					(clusterFilter == "" || a.ClusterID == clusterFilter) {
+					filteredAlerts = append(filteredAlerts, a)
+				}
+			}
+			data, _ := json.Marshal(filteredAlerts)
 			w.Write([]byte("data: " + string(data) + "\n\n"))
 			flusher.Flush()
 		}
@@ -113,4 +134,51 @@ func (h *ResourceHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 func (h *ResourceHandler) GetReports(w http.ResponseWriter, r *http.Request) {
 	reports := h.Storage.GetReports()
 	json.NewEncoder(w).Encode(reports)
+}
+
+// Action handlers for Incident Response
+func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	action := vars["action"] // isolate, delete, evaluate
+	clusterID := r.URL.Query().Get("clusterId")
+	namespace := r.URL.Query().Get("namespace")
+	podName := r.URL.Query().Get("podName")
+
+	cluster, err := h.Storage.GetCluster(clusterID)
+	if err != nil {
+		http.Error(w, "Cluster not found", http.StatusNotFound)
+		return
+	}
+
+	switch action {
+	case "isolate":
+		err = h.K8s.IsolatePod(clusterID, cluster.KubeConfig, namespace, podName)
+	case "delete":
+		err = h.K8s.DeletePod(clusterID, cluster.KubeConfig, namespace, podName)
+	case "evaluate":
+		// Example of policy evaluation
+		client, _ := h.K8s.GetClient(clusterID, cluster.KubeConfig)
+		pod, _ := client.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		policies := h.Storage.GetPolicies()
+		var allViolations []string
+		for _, p := range policies {
+			if p.Namespace == "" || p.Namespace == namespace {
+				violations := kubernetes.EvaluatePolicy(pod, p)
+				allViolations = append(allViolations, violations...)
+			}
+		}
+		json.NewEncoder(w).Encode(allViolations)
+		return
+	default:
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Action failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Action %s completed for %s", action, podName)
 }
