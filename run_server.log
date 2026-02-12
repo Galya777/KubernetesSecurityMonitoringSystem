@@ -1,0 +1,6 @@
+nohup: входът се пренебрегва
+2026/02/09 19:52:49 Connecting to database at localhost:5432 as user postgres...
+2026/02/09 19:52:49 Failed to connect to database: failed to ping database: pq: password authentication failed for user "postgres". Falling back to local file storage.
+2026/02/09 19:52:49 Using file-backed local auth at .local_users_demo.json
+2026/02/09 19:52:49 Server starting on :8081
+2026/02/09 19:52:49 listen tcp :8081: bind: address already in use

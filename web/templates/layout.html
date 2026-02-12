@@ -27,9 +27,13 @@
                     <li class="nav-item"><a class="nav-link" href="/about">About</a></li>
                 </ul>
                 <ul class="navbar-nav">
-                    <li class="nav-item"><a class="nav-link" href="/login">Login</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/register">Register</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/personal">Profile</a></li>
+                    {{if .IsAuthenticated}}
+                        <li class="nav-item"><a class="nav-link" href="/personal">Profile</a></li>
+                        <li class="nav-item"><a class="nav-link" href="#" id="logoutLink">Logout</a></li>
+                    {{else}}
+                        <li class="nav-item"><a class="nav-link" href="/login">Login</a></li>
+                        <li class="nav-item"><a class="nav-link" href="/register">Register</a></li>
+                    {{end}}
                 </ul>
             </div>
         </div>
@@ -43,6 +47,22 @@
         <hr>
         <p>&copy; 2026 Galya Dodova - Kubernetes Security Monitoring System</p>
     </footer>
+
+    {{if .IsAuthenticated}}
+    <script>
+        (function () {
+            var link = document.getElementById('logoutLink');
+            if (!link) return;
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                axios.post('/api/logout').finally(function () {
+                    localStorage.removeItem('token');
+                    window.location.href = '/';
+                });
+            });
+        })();
+    </script>
+    {{end}}
 </body>
 </html>
 {{end}}

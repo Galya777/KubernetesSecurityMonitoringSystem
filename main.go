@@ -3,12 +3,15 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"text/template"
 
 	"KubernetesSecurityMonitoringSystem/internal/handlers"
 	"KubernetesSecurityMonitoringSystem/internal/kubernetes"
 	"KubernetesSecurityMonitoringSystem/internal/middleware"
+	"KubernetesSecurityMonitoringSystem/internal/models"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
+
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -19,8 +22,20 @@ func main() {
 
 	store, err = storage.NewDatabaseStorage()
 	if err != nil {
-		log.Printf("Failed to connect to database: %v. Falling back to memory storage.", err)
-		store = storage.NewMemoryStorage()
+		log.Printf("Failed to connect to database: %v. Falling back to local file storage.", err)
+		// attempt to use file-backed storage in the current working directory
+		localPath := os.Getenv("LOCAL_AUTH_FILE")
+		if localPath == "" {
+			localPath = ".local_users.json"
+		}
+		fs, ferr := storage.NewFileStorage(localPath)
+		if ferr != nil {
+			log.Printf("Failed to initialize file storage: %v. Falling back to in-memory storage.", ferr)
+			store = storage.NewMemoryStorage()
+		} else {
+			store = fs
+			log.Printf("Using file-backed local auth at %s", localPath)
+		}
 	}
 
 	k8sMgr := kubernetes.NewClusterManager()
@@ -31,6 +46,7 @@ func main() {
 	resH := &handlers.ResourceHandler{Storage: store, K8s: k8sMgr}
 
 	r := mux.NewRouter()
+	r.Use(middleware.AuthMiddleware)
 
 	// API Routes
 	api := r.PathPrefix("/api").Subrouter()
@@ -81,8 +97,14 @@ func main() {
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
-	log.Println("Server starting on :8081")
-	log.Fatal(http.ListenAndServe(":8081", r))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
+	addr := ":" + port
+
+	log.Println("Server starting on", addr)
+	log.Fatal(http.ListenAndServe(addr, r))
 }
 
 func serveTemplate(name string) http.HandlerFunc {
@@ -92,6 +114,22 @@ func serveTemplate(name string) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		tmpl.ExecuteTemplate(w, "layout", nil)
+
+		var data struct {
+			IsAuthenticated bool
+			UserID          string
+			Role            models.Role
+		}
+		if claims, ok := r.Context().Value(middleware.UserContextKey).(*handlers.Claims); ok {
+			data.IsAuthenticated = true
+			data.UserID = claims.UserID
+			data.Role = claims.Role
+		}
+		// Handle ExecuteTemplate error explicitly
+		if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
+			log.Println("Template execution error:", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 	}
 }

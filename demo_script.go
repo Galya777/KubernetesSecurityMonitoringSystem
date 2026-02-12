@@ -11,7 +11,7 @@ import (
 
 const baseURL = "http://localhost:8081/api"
 
-func main() {
+func RunDemo() {
 	fmt.Println("🚀 Стартиране на демострация на KSMS...")
 
 	// 1. Регистрация на нов администратор

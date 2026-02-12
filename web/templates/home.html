@@ -1,4 +1,17 @@
 {{define "content"}}
+{{if .IsAuthenticated}}
+<div class="jumbotron">
+    <h1 class="display-4">Welcome back to KSMS</h1>
+    <p class="lead">You're logged in. Use the shortcuts below to explore the system.</p>
+    <hr class="my-4">
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-primary btn-lg" href="/clusters" role="button">Clusters</a>
+        <a class="btn btn-outline-primary btn-lg" href="/alerts" role="button">Alerts</a>
+        <a class="btn btn-outline-primary btn-lg" href="/policies" role="button">Policies</a>
+        <a class="btn btn-outline-secondary btn-lg" href="/personal" role="button">Profile</a>
+    </div>
+</div>
+{{else}}
 <div class="jumbotron">
     <h1 class="display-4">Welcome to KSMS</h1>
     <p class="lead">Kubernetes Security Monitoring System enabling real-time monitoring and threat detection.</p>
@@ -6,6 +19,7 @@
     <p>Monitor security states, define policies, and respond to threats in your K8s clusters.</p>
     <a class="btn btn-primary btn-lg" href="/register" role="button">Get Started</a>
 </div>
+{{end}}
 
 <div class="row mt-4">
     <div class="col-md-4">

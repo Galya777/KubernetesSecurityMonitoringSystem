@@ -54,6 +54,11 @@ func NewMemoryStorage() *MemoryStorage {
 func (s *MemoryStorage) AddUser(u models.User) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for _, existing := range s.users {
+		if existing.Email == u.Email {
+			return errors.New("email already in use")
+		}
+	}
 	if _, ok := s.users[u.ID]; ok {
 		return errors.New("user already exists")
 	}

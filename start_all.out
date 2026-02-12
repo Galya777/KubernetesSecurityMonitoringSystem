@@ -1,0 +1,8 @@
+[start_all] working dir: /home/galya777/GolandProjects/KubernetesSecurityMonitoringSystem/scripts/..
+[start_all] starting postgres container (db) via docker compose...
+ Network kubernetessecuritymonitoringsystem_default  Creating
+ Network kubernetessecuritymonitoringsystem_default  Created
+ Container kubernetessecuritymonitoringsystem-db-1  Creating
+ Container kubernetessecuritymonitoringsystem-db-1  Created
+ Container kubernetessecuritymonitoringsystem-db-1  Starting
+Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint kubernetessecuritymonitoringsystem-db-1 (9bfd9d0a841c082c868e49feab279c3318a0cb8558a02f4f4d34ced305f84714): failed to bind host port for 0.0.0.0:5433:172.19.0.2:5432/tcp: address already in use

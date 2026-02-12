@@ -1,0 +1,4 @@
+nohup: входът се пренебрегва
+2026/02/09 18:20:32 Connecting to database at localhost:5432 as user postgres...
+2026/02/09 18:20:32 Failed to connect to database: failed to ping database: pq: password authentication failed for user "postgres". Falling back to memory storage.
+2026/02/09 18:20:32 Server starting on :8082

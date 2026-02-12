@@ -1,0 +1,6 @@
+nohup: входът се пренебрегва
+2026/02/09 19:11:26 Connecting to database at localhost:5432 as user ksms_user...
+2026/02/09 19:11:26 Failed to connect to database: failed to ping database: pq: password authentication failed for user "ksms_user". Falling back to memory storage.
+2026/02/09 19:11:26 Server starting on :8081
+2026/02/09 19:11:26 listen tcp :8081: bind: address already in use
+exit status 1

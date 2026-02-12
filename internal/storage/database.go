@@ -18,20 +18,10 @@ type DatabaseStorage struct {
 
 func NewDatabaseStorage() (*DatabaseStorage, error) {
 	host := getEnv("DB_HOST", "localhost")
-	port := getEnv("DB_PORT", "5433")
+	port := getEnv("DB_PORT", "5432")
 	user := getEnv("DB_USER", "postgres")
 	password := getEnv("DB_PASSWORD", "admin123")
 	dbname := getEnv("DB_NAME", "ksms")
-
-	// Check if port 5432 is explicitly set (likely by an IDE or env var) and override it if 5433 is known to be the correct one.
-	if port == "5432" {
-		log.Printf("Detected DB_PORT=5432. Overriding to 5433 as per known working configuration.")
-		port = "5433"
-	}
-	if password == "password" {
-		log.Printf("Detected default DB_PASSWORD='password'. Overriding to 'admin123' as per known working configuration.")
-		password = "admin123"
-	}
 
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)

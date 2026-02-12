@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -25,19 +26,43 @@ type AuthHandler struct {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var u models.User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var req struct {
+		Email     string      `json:"email"`
+		Password  string      `json:"password"`
+		FirstName string      `json:"first_name"`
+		LastName  string      `json:"last_name"`
+		Role      models.Role `json:"role"`
+		TokenKeys []string    `json:"token_keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
-	u.Password = string(hashedPassword)
-	u.ID = time.Now().Format("20060102150405")
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+
+	u := models.User{
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		Email:     req.Email,
+		Password:  string(hashedPassword),
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Role:      req.Role,
+		TokenKeys: req.TokenKeys,
+		CreatedAt: time.Now(),
+	}
 	if u.Role == "" {
 		u.Role = models.RoleStudent
 	}
-	u.CreatedAt = time.Now()
 
 	if err := h.Storage.AddUser(u); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
