@@ -35,6 +35,121 @@
             <button type="button" class="btn btn-danger float-end" @click="deregister">Deregister from OKTS</button>
         </form>
     </div>
+
+    <div v-if="user" class="card p-4 mt-4">
+        <h4 class="mb-3">My Containers</h4>
+
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Cluster ID</label>
+                <input type="text" v-model="createContainer.cluster_id" class="form-control" placeholder="cluster id">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Namespace</label>
+                <input type="text" v-model="createContainer.namespace" class="form-control" placeholder="default">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Pod</label>
+                <input type="text" v-model="createContainer.pod_name" class="form-control" placeholder="pod name">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Container</label>
+                <input type="text" v-model="createContainer.container_name" class="form-control" placeholder="container name">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Image</label>
+                <input type="text" v-model="createContainer.image" class="form-control" placeholder="image">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <input type="text" v-model="createContainer.status" class="form-control" placeholder="Running">
+            </div>
+            <div class="col-md-4 d-grid">
+                <button type="button" class="btn btn-outline-primary" @click="createContainerRecord">Create & Attach</button>
+            </div>
+        </div>
+
+        <hr class="my-4">
+
+        <div class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Discover from cluster</label>
+                <select v-model="discover.clusterId" class="form-select">
+                    <option value="" disabled>Select cluster</option>
+                    <option v-for="c in clusters" :key="c.id" :value="c.id">[[ c.name ]] ([[ c.id ]])</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Namespace (optional)</label>
+                <input type="text" v-model="discover.namespace" class="form-control" placeholder="default">
+            </div>
+            <div class="col-md-3 d-grid">
+                <button type="button" class="btn btn-outline-secondary" @click="discoverContainers" :disabled="!discover.clusterId">Discover</button>
+            </div>
+        </div>
+
+        <div v-if="discover.error" class="alert alert-danger mt-3">[[ discover.error ]]</div>
+
+        <div v-if="discoveredContainers.length" class="mt-3">
+            <h6>Discovery Results</h6>
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Namespace</th>
+                        <th>Pod</th>
+                        <th>Container</th>
+                        <th>Image</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="c in discoveredContainers" :key="c.namespace + '|' + c.pod_name + '|' + c.container_name">
+                        <td>[[ c.namespace ]]</td>
+                        <td>[[ c.pod_name ]]</td>
+                        <td>[[ c.container_name ]]</td>
+                        <td>[[ c.image ]]</td>
+                        <td>[[ c.status ]]</td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-success" @click="attachDiscovered(c)">Attach</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div v-if="containersError" class="alert alert-danger mt-3">[[ containersError ]]</div>
+
+        <div v-if="containers.length" class="mt-3">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Cluster</th>
+                        <th>Namespace</th>
+                        <th>Pod</th>
+                        <th>Container</th>
+                        <th>Image</th>
+                        <th>Status</th>
+                        <th v-if="user && user.role === 'Administrator'">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="c in containers" :key="c.id">
+                        <td>[[ c.cluster_id ]]</td>
+                        <td>[[ c.namespace ]]</td>
+                        <td>[[ c.pod_name ]]</td>
+                        <td>[[ c.container_name ]]</td>
+                        <td>[[ c.image ]]</td>
+                        <td>[[ c.status ]]</td>
+                        <td v-if="user && user.role === 'Administrator'">
+                            <button type="button" class="btn btn-danger btn-sm" @click="deleteContainer(c.id)">Delete</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div v-else class="mt-3 text-muted">No containers attached yet.</div>
+    </div>
 </div>
 
 <script>
@@ -44,21 +159,63 @@
         data: {
             user: null,
             newToken: '',
-            userId: '' // Should be retrieved from token or session
+            userId: '',
+            clusters: [],
+            containers: [],
+            containersError: '',
+            createContainer: {
+                cluster_id: '',
+                namespace: 'default',
+                pod_name: '',
+                container_name: '',
+                image: '',
+                status: 'Running'
+            },
+            discover: {
+                clusterId: '',
+                namespace: '',
+                error: ''
+            },
+            discoveredContainers: []
         },
         mounted() {
-            // In a real app, we'd get the ID from the JWT claims. 
-            // For this demo, let's assume we store it in localStorage after login
-            const token = localStorage.getItem('token');
-            if (token) {
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                this.userId = payload.user_id;
+            this.userId = "{{.UserID}}";
+            if (!this.userId) {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    this.userId = payload.user_id;
+                }
+            }
+            if (this.userId) {
                 this.fetchUser();
+                this.fetchClusters();
+                this.fetchContainers();
             }
         },
         methods: {
             fetchUser() {
                 axios.get('/api/users/' + this.userId).then(res => this.user = res.data);
+            },
+            fetchClusters() {
+                axios.get('/api/clusters')
+                    .then(res => {
+                        this.clusters = res.data || [];
+                    })
+                    .catch(() => {
+                        this.clusters = [];
+                    });
+            },
+            fetchContainers() {
+                this.containersError = '';
+                axios.get('/api/users/' + this.userId + '/containers')
+                    .then(res => {
+                        this.containers = res.data || [];
+                    })
+                    .catch(err => {
+                        this.containers = [];
+                        this.containersError = (err && err.response && err.response.data) ? err.response.data : 'Failed to load containers';
+                    });
             },
             addToken() {
                 if (this.newToken) {
@@ -69,6 +226,53 @@
             },
             updateProfile() {
                 axios.put('/api/users/' + this.userId, this.user).then(() => alert('Profile updated!'));
+            },
+            createContainerRecord() {
+                this.containersError = '';
+                axios.post('/api/containers', this.createContainer)
+                    .then(() => {
+                        this.fetchContainers();
+                    })
+                    .catch(err => {
+                        this.containersError = (err && err.response && err.response.data) ? err.response.data : 'Failed to create container';
+                    });
+            },
+            discoverContainers() {
+                this.discover.error = '';
+                this.discoveredContainers = [];
+
+                var url = '/api/clusters/' + this.discover.clusterId + '/discover/containers';
+                if (this.discover.namespace) {
+                    url += '?namespace=' + encodeURIComponent(this.discover.namespace);
+                }
+
+                axios.get(url)
+                    .then(res => {
+                        this.discoveredContainers = res.data || [];
+                    })
+                    .catch(err => {
+                        this.discover.error = (err && err.response && err.response.data) ? err.response.data : 'Failed to discover containers';
+                    });
+            },
+            attachDiscovered(c) {
+                this.containersError = '';
+                axios.post('/api/containers', {
+                    cluster_id: this.discover.clusterId,
+                    namespace: c.namespace,
+                    pod_name: c.pod_name,
+                    container_name: c.container_name,
+                    image: c.image,
+                    status: c.status
+                }).then(() => {
+                    this.fetchContainers();
+                }).catch(err => {
+                    this.containersError = (err && err.response && err.response.data) ? err.response.data : 'Failed to attach discovered container';
+                });
+            },
+            deleteContainer(containerId) {
+                if (!confirm('Delete this container?')) return;
+                axios.delete('/api/containers/' + containerId)
+                    .then(() => this.fetchContainers());
             },
             deregister() {
                 if (confirm('Are you sure you want to deregister?')) {
