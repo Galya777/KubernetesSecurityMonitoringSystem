@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"KubernetesSecurityMonitoringSystem/internal/handlers"
+	"KubernetesSecurityMonitoringSystem/internal/auth"
 	"KubernetesSecurityMonitoringSystem/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -33,9 +33,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		claims := &handlers.Claims{}
+		claims := &auth.Claims{}
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-			return handlers.JwtKey, nil
+			return auth.JwtKey, nil
 		})
 
 		if err == nil && token.Valid {
@@ -50,7 +50,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 func RequireRole(roles ...models.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := r.Context().Value(UserContextKey).(*handlers.Claims)
+			claims, ok := r.Context().Value(UserContextKey).(*auth.Claims)
 			if !ok {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return

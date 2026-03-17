@@ -3,23 +3,17 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
+	"KubernetesSecurityMonitoringSystem/internal/auth"
 	"KubernetesSecurityMonitoringSystem/internal/models"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
-
-var JwtKey = []byte("your_secret_key")
-
-type Claims struct {
-	UserID string      `json:"user_id"`
-	Role   models.Role `json:"role"`
-	jwt.RegisteredClaims
-}
 
 type AuthHandler struct {
 	Storage storage.Storage
@@ -84,13 +78,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := h.Storage.GetUserByEmail(creds.Email)
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)) != nil {
+	if err != nil {
+		log.Printf("Login failed for %s: user not found", creds.Email)
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)) != nil {
+		log.Printf("Login failed for %s: password mismatch", creds.Email)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	expirationTime := time.Now().Add(24 * time.Hour)
-	claims := &Claims{
+	claims := &auth.Claims{
 		UserID: user.ID,
 		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -99,7 +99,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(JwtKey)
+	tokenString, err := token.SignedString(auth.JwtKey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

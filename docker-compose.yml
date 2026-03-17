@@ -4,11 +4,11 @@ services:
     ports:
       - "8082:8081"
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=admin123
-      - DB_NAME=ksms
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin123
+      - POSTGRES_DATABASE_NAME=ksms
     depends_on:
       db:
         condition: service_healthy

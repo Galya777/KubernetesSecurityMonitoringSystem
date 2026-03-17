@@ -141,3 +141,19 @@ func (fs *FileStorage) AddAlert(a models.Alert)             { fs.mem.AddAlert(a)
 func (fs *FileStorage) GetAlerts() []models.Alert           { return fs.mem.GetAlerts() }
 func (fs *FileStorage) AddReport(r models.IncidentReport)   { fs.mem.AddReport(r) }
 func (fs *FileStorage) GetReports() []models.IncidentReport { return fs.mem.GetReports() }
+
+func (fs *FileStorage) AddContainer(c models.Container) error { return fs.mem.AddContainer(c) }
+func (fs *FileStorage) GetContainer(id string) (models.Container, error) {
+	return fs.mem.GetContainer(id)
+}
+func (fs *FileStorage) GetAllContainers() []models.Container { return fs.mem.GetAllContainers() }
+func (fs *FileStorage) DeleteContainer(id string) error      { return fs.mem.DeleteContainer(id) }
+func (fs *FileStorage) AttachContainerToUser(userID, containerID string) error {
+	return fs.mem.AttachContainerToUser(userID, containerID)
+}
+func (fs *FileStorage) DetachContainerFromUser(userID, containerID string) error {
+	return fs.mem.DetachContainerFromUser(userID, containerID)
+}
+func (fs *FileStorage) GetContainersByUser(userID string) ([]models.Container, error) {
+	return fs.mem.GetContainersByUser(userID)
+}

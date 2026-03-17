@@ -29,24 +29,36 @@ type Storage interface {
 	GetAlerts() []models.Alert
 	AddReport(r models.IncidentReport)
 	GetReports() []models.IncidentReport
+
+	AddContainer(c models.Container) error
+	GetContainer(id string) (models.Container, error)
+	GetAllContainers() []models.Container
+	DeleteContainer(id string) error
+	AttachContainerToUser(userID, containerID string) error
+	DetachContainerFromUser(userID, containerID string) error
+	GetContainersByUser(userID string) ([]models.Container, error)
 }
 
 type MemoryStorage struct {
-	users    map[string]models.User
-	clusters map[string]models.Cluster
-	policies map[string]models.Policy
-	alerts   []models.Alert
-	reports  []models.IncidentReport
-	mu       sync.RWMutex
+	users          map[string]models.User
+	clusters       map[string]models.Cluster
+	policies       map[string]models.Policy
+	containers     map[string]models.Container
+	userContainers map[string]map[string]bool
+	alerts         []models.Alert
+	reports        []models.IncidentReport
+	mu             sync.RWMutex
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		users:    make(map[string]models.User),
-		clusters: make(map[string]models.Cluster),
-		policies: make(map[string]models.Policy),
-		alerts:   make([]models.Alert, 0),
-		reports:  make([]models.IncidentReport, 0),
+		users:          make(map[string]models.User),
+		clusters:       make(map[string]models.Cluster),
+		policies:       make(map[string]models.Policy),
+		containers:     make(map[string]models.Container),
+		userContainers: make(map[string]map[string]bool),
+		alerts:         make([]models.Alert, 0),
+		reports:        make([]models.IncidentReport, 0),
 	}
 }
 
@@ -207,4 +219,97 @@ func (s *MemoryStorage) GetReports() []models.IncidentReport {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.reports
+}
+
+// Container methods
+func (s *MemoryStorage) AddContainer(c models.Container) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.containers[c.ID]; ok {
+		return errors.New("container already exists")
+	}
+	s.containers[c.ID] = c
+	return nil
+}
+
+func (s *MemoryStorage) GetContainer(id string) (models.Container, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.containers[id]
+	if !ok {
+		return models.Container{}, errors.New("container not found")
+	}
+	return c, nil
+}
+
+func (s *MemoryStorage) GetAllContainers() []models.Container {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	containers := make([]models.Container, 0, len(s.containers))
+	for _, c := range s.containers {
+		containers = append(containers, c)
+	}
+	return containers
+}
+
+func (s *MemoryStorage) DeleteContainer(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.containers[id]; !ok {
+		return errors.New("container not found")
+	}
+	delete(s.containers, id)
+	for uid, set := range s.userContainers {
+		delete(set, id)
+		if len(set) == 0 {
+			delete(s.userContainers, uid)
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStorage) AttachContainerToUser(userID, containerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[userID]; !ok {
+		return errors.New("user not found")
+	}
+	if _, ok := s.containers[containerID]; !ok {
+		return errors.New("container not found")
+	}
+	if _, ok := s.userContainers[userID]; !ok {
+		s.userContainers[userID] = make(map[string]bool)
+	}
+	s.userContainers[userID][containerID] = true
+	return nil
+}
+
+func (s *MemoryStorage) DetachContainerFromUser(userID, containerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	set, ok := s.userContainers[userID]
+	if !ok {
+		return nil
+	}
+	delete(set, containerID)
+	if len(set) == 0 {
+		delete(s.userContainers, userID)
+	}
+	return nil
+}
+
+func (s *MemoryStorage) GetContainersByUser(userID string) ([]models.Container, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.users[userID]; !ok {
+		return nil, errors.New("user not found")
+	}
+	set := s.userContainers[userID]
+	containers := make([]models.Container, 0, len(set))
+	for cid := range set {
+		if c, ok := s.containers[cid]; ok {
+			containers = append(containers, c)
+		}
+	}
+	return containers, nil
 }

@@ -182,3 +182,51 @@ func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Action %s completed for %s", action, podName)
 }
+
+// DiscoverContainers lists containers from pods in a cluster (optionally filtered by namespace)
+// and returns them as models.Container records (discovery only; not persisted).
+func (h *ResourceHandler) DiscoverContainers(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	clusterID := vars["clusterId"]
+	if clusterID == "" {
+		http.Error(w, "clusterId is required", http.StatusBadRequest)
+		return
+	}
+
+	cluster, err := h.Storage.GetCluster(clusterID)
+	if err != nil {
+		http.Error(w, "Cluster not found", http.StatusNotFound)
+		return
+	}
+
+	client, err := h.K8s.GetClient(clusterID, cluster.KubeConfig)
+	if err != nil {
+		http.Error(w, "Failed to create Kubernetes client: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ns := r.URL.Query().Get("namespace")
+	pods, err := client.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		http.Error(w, "Failed to list pods: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]models.Container, 0)
+	for _, pod := range pods.Items {
+		for _, c := range pod.Spec.Containers {
+			result = append(result, models.Container{
+				ID:            fmt.Sprintf("%s:%s:%s:%s", clusterID, pod.Namespace, pod.Name, c.Name),
+				ClusterID:     clusterID,
+				Namespace:     pod.Namespace,
+				PodName:       pod.Name,
+				ContainerName: c.Name,
+				Image:         c.Image,
+				Status:        string(pod.Status.Phase),
+				CreatedAt:     time.Now(),
+			})
+		}
+	}
+
+	json.NewEncoder(w).Encode(result)
+}

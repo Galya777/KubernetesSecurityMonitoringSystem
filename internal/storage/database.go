@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"KubernetesSecurityMonitoringSystem/internal/models"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type DatabaseStorage struct {
@@ -17,11 +19,11 @@ type DatabaseStorage struct {
 }
 
 func NewDatabaseStorage() (*DatabaseStorage, error) {
-	host := getEnv("DB_HOST", "localhost")
-	port := getEnv("DB_PORT", "5432")
-	user := getEnv("DB_USER", "postgres")
-	password := getEnv("DB_PASSWORD", "admin123")
-	dbname := getEnv("DB_NAME", "ksms")
+	host := getEnvFirst([]string{"POSTGRES_HOST", "DB_HOST"}, "localhost")
+	port := getEnvFirst([]string{"POSTGRES_PORT", "DB_PORT"}, "5433")
+	user := getEnvFirst([]string{"POSTGRES_USER", "DB_USER"}, "postgres")
+	password := getEnvFirst([]string{"POSTGRES_PASSWORD", "DB_PASSWORD"}, "admin123")
+	dbname := getEnvFirst([]string{"POSTGRES_DATABASE_NAME", "POSTGRES_DB", "DB_NAME"}, "ksms")
 
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
@@ -40,8 +42,122 @@ func NewDatabaseStorage() (*DatabaseStorage, error) {
 	if err := s.initSchema(); err != nil {
 		return nil, err
 	}
+	if err := s.ensureDefaultAdmin(); err != nil {
+		return nil, err
+	}
 
 	return s, nil
+}
+
+func (s *DatabaseStorage) ensureDefaultAdmin() error {
+	adminEmail := getEnvFirst([]string{"DEFAULT_ADMIN_EMAIL", "ADMIN_EMAIL"}, "admin@ksms.io")
+	adminPassword := getEnvFirst([]string{"DEFAULT_ADMIN_PASSWORD", "ADMIN_PASSWORD"}, "admin123")
+
+	var exists bool
+	if err := s.db.QueryRow("SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)", adminEmail).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash default admin password: %w", err)
+	}
+
+	u := models.User{
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		Email:     adminEmail,
+		Password:  string(hashedPassword),
+		FirstName: "Admin",
+		LastName:  "KSMS",
+		Role:      models.RoleAdmin,
+		TokenKeys: []string{},
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.AddUser(u); err != nil {
+		return err
+	}
+
+	log.Printf("Seeded default admin user %s", adminEmail)
+	return nil
+}
+
+// Container methods
+func (s *DatabaseStorage) AddContainer(c models.Container) error {
+	_, err := s.db.Exec("INSERT INTO containers (id, cluster_id, namespace, pod_name, container_name, image, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+		c.ID, c.ClusterID, c.Namespace, c.PodName, c.ContainerName, c.Image, c.Status, c.CreatedAt)
+	return err
+}
+
+func (s *DatabaseStorage) GetContainer(id string) (models.Container, error) {
+	var c models.Container
+	err := s.db.QueryRow("SELECT id, cluster_id, namespace, pod_name, container_name, image, status, created_at FROM containers WHERE id = $1", id).
+		Scan(&c.ID, &c.ClusterID, &c.Namespace, &c.PodName, &c.ContainerName, &c.Image, &c.Status, &c.CreatedAt)
+	if err != nil {
+		return models.Container{}, err
+	}
+	return c, nil
+}
+
+func (s *DatabaseStorage) GetAllContainers() []models.Container {
+	rows, err := s.db.Query("SELECT id, cluster_id, namespace, pod_name, container_name, image, status, created_at FROM containers")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var containers []models.Container
+	for rows.Next() {
+		var c models.Container
+		if err := rows.Scan(&c.ID, &c.ClusterID, &c.Namespace, &c.PodName, &c.ContainerName, &c.Image, &c.Status, &c.CreatedAt); err != nil {
+			continue
+		}
+		containers = append(containers, c)
+	}
+	return containers
+}
+
+func (s *DatabaseStorage) DeleteContainer(id string) error {
+	if _, err := s.db.Exec("DELETE FROM user_containers WHERE container_id=$1", id); err != nil {
+		return err
+	}
+	_, err := s.db.Exec("DELETE FROM containers WHERE id=$1", id)
+	return err
+}
+
+func (s *DatabaseStorage) AttachContainerToUser(userID, containerID string) error {
+	_, err := s.db.Exec("INSERT INTO user_containers (user_id, container_id, created_at) VALUES ($1,$2,$3) ON CONFLICT (user_id, container_id) DO NOTHING",
+		userID, containerID, time.Now())
+	return err
+}
+
+func (s *DatabaseStorage) DetachContainerFromUser(userID, containerID string) error {
+	_, err := s.db.Exec("DELETE FROM user_containers WHERE user_id=$1 AND container_id=$2", userID, containerID)
+	return err
+}
+
+func (s *DatabaseStorage) GetContainersByUser(userID string) ([]models.Container, error) {
+	rows, err := s.db.Query(`SELECT c.id, c.cluster_id, c.namespace, c.pod_name, c.container_name, c.image, c.status, c.created_at
+		FROM containers c
+		JOIN user_containers uc ON uc.container_id = c.id
+		WHERE uc.user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	containers := make([]models.Container, 0)
+	for rows.Next() {
+		var c models.Container
+		if err := rows.Scan(&c.ID, &c.ClusterID, &c.Namespace, &c.PodName, &c.ContainerName, &c.Image, &c.Status, &c.CreatedAt); err != nil {
+			continue
+		}
+		containers = append(containers, c)
+	}
+	return containers, nil
 }
 
 func (s *DatabaseStorage) initSchema() error {
@@ -55,6 +171,22 @@ func (s *DatabaseStorage) initSchema() error {
 			role TEXT,
 			token_keys JSONB,
 			created_at TIMESTAMP WITH TIME ZONE
+		)`,
+		`CREATE TABLE IF NOT EXISTS containers (
+			id TEXT PRIMARY KEY,
+			cluster_id TEXT,
+			namespace TEXT,
+			pod_name TEXT,
+			container_name TEXT,
+			image TEXT,
+			status TEXT,
+			created_at TIMESTAMP WITH TIME ZONE
+		)`,
+		`CREATE TABLE IF NOT EXISTS user_containers (
+			user_id TEXT NOT NULL,
+			container_id TEXT NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE,
+			PRIMARY KEY (user_id, container_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS clusters (
 			id TEXT PRIMARY KEY,
@@ -301,6 +433,15 @@ func (s *DatabaseStorage) GetReports() []models.IncidentReport {
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
+	}
+	return fallback
+}
+
+func getEnvFirst(keys []string, fallback string) string {
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			return value
+		}
 	}
 	return fallback
 }

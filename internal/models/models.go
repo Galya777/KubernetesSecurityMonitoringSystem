@@ -32,6 +32,17 @@ type Cluster struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type Container struct {
+	ID            string    `json:"id"`
+	ClusterID     string    `json:"cluster_id"`
+	Namespace     string    `json:"namespace"`
+	PodName       string    `json:"pod_name"`
+	ContainerName string    `json:"container_name"`
+	Image         string    `json:"image"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type Metrics struct {
 	CPUUsage    float64 `json:"cpu_usage"`
 	MemoryUsage float64 `json:"memory_usage"`
