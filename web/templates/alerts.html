@@ -21,15 +21,27 @@
         el: '#app',
         delimiters: ['[[', ']]'],
         data: {
-            alerts: []
+            alerts: [],
+            error: ''
         },
         mounted() {
+            axios.get('/api/alerts')
+                .then(res => {
+                    this.alerts = res.data || [];
+                })
+                .catch(() => {
+                    this.alerts = [];
+                });
+
             const eventSource = new EventSource('/api/tests');
             eventSource.onmessage = (event) => {
                 const newAlerts = JSON.parse(event.data);
-                if (newAlerts && newAlerts.length > 0) {
+                if (newAlerts) {
                     this.alerts = newAlerts;
                 }
+            };
+            eventSource.onerror = () => {
+                this.error = 'Failed to connect to alerts stream. Please login again.';
             };
         }
     });

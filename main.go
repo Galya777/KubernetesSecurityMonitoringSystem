@@ -102,6 +102,8 @@ func main() {
 	// Alerts and Reports API
 	api.HandleFunc("/tests", resH.GetAlerts).Methods("GET")           // As per 4.7 URI
 	api.HandleFunc("/tests/{testId}", resH.GetReports).Methods("GET") // As per 4.8 URI (mapping to reports)
+	api.HandleFunc("/alerts", resH.GetAlertsJSON).Methods("GET")
+	api.HandleFunc("/reports", resH.GetReports).Methods("GET")
 
 	api.HandleFunc("/actions/{action}", resH.HandleAction).Methods("POST")
 
@@ -137,30 +139,83 @@ func seedDemoData(store storage.Storage) {
 	if err != nil {
 		return
 	}
-	containers, err := store.GetContainersByUser(admin.ID)
-	if err == nil && len(containers) > 0 {
-		return
-	}
-
 	demoClusterID := "demo-cluster"
-	for i := 1; i <= 3; i++ {
-		c := models.Container{
-			ID:            fmt.Sprintf("demo-%d", i),
-			ClusterID:     demoClusterID,
-			Namespace:     "default",
-			PodName:       fmt.Sprintf("demo-pod-%d", i),
-			ContainerName: "app",
-			Image:         "nginx:latest",
-			Status:        "Running",
-			CreatedAt:     time.Now(),
-		}
-		if err := store.AddContainer(c); err == nil {
-			_ = store.AttachContainerToUser(admin.ID, c.ID)
+
+	if clusters := store.GetClusters(); len(clusters) == 0 {
+		_ = store.AddCluster(models.Cluster{
+			ID:         demoClusterID,
+			Name:       "Demo Cluster",
+			KubeConfig: "",
+			Status:     "Demo",
+			Metrics: models.Metrics{
+				CPUUsage:    23.5,
+				MemoryUsage: 512,
+				PodCount:    12,
+			},
+			CreatedAt: time.Now(),
+		})
+	}
+
+	if policies := store.GetPolicies(); len(policies) == 0 {
+		_ = store.AddPolicy(models.Policy{
+			ID:          "demo-policy-1",
+			Name:        "No Privileged Containers",
+			Description: "Block privileged containers in all namespaces",
+			Rules:       []string{"no_privileged=true"},
+			Namespace:   "",
+			CreatedAt:   time.Now(),
+		})
+		_ = store.AddPolicy(models.Policy{
+			ID:          "demo-policy-2",
+			Name:        "Disallow Exec",
+			Description: "Detect suspicious exec in containers",
+			Rules:       []string{"disallow_exec=true"},
+			Namespace:   "default",
+			CreatedAt:   time.Now(),
+		})
+	}
+
+	containers, _ := store.GetContainersByUser(admin.ID)
+	if len(containers) == 0 {
+		for i := 1; i <= 3; i++ {
+			c := models.Container{
+				ID:            fmt.Sprintf("demo-%d", i),
+				ClusterID:     demoClusterID,
+				Namespace:     "default",
+				PodName:       fmt.Sprintf("demo-pod-%d", i),
+				ContainerName: "app",
+				Image:         "nginx:latest",
+				Status:        "Running",
+				CreatedAt:     time.Now(),
+			}
+			if err := store.AddContainer(c); err == nil {
+				_ = store.AttachContainerToUser(admin.ID, c.ID)
+			}
 		}
 	}
 
-	store.AddAlert(models.Alert{ID: "demo-alert-1", ClusterID: demoClusterID, Severity: "High", Message: "Suspicious exec detected in container", Timestamp: time.Now()})
-	store.AddAlert(models.Alert{ID: "demo-alert-2", ClusterID: demoClusterID, Severity: "Medium", Message: "Privileged container started", Timestamp: time.Now().Add(-2 * time.Minute)})
+	alerts := store.GetAlerts()
+	hasDemoAlert1 := false
+	hasDemoAlert2 := false
+	for _, a := range alerts {
+		if a.ID == "demo-alert-1" {
+			hasDemoAlert1 = true
+		}
+		if a.ID == "demo-alert-2" {
+			hasDemoAlert2 = true
+		}
+	}
+	if !hasDemoAlert1 {
+		store.AddAlert(models.Alert{ID: "demo-alert-1", ClusterID: demoClusterID, Severity: "High", Message: "Suspicious exec detected in container demo-1 (demo-pod-1/app)", Timestamp: time.Now()})
+	}
+	if !hasDemoAlert2 {
+		store.AddAlert(models.Alert{ID: "demo-alert-2", ClusterID: demoClusterID, Severity: "Medium", Message: "Privileged container started: demo-2 (demo-pod-2/app)", Timestamp: time.Now().Add(-2 * time.Minute)})
+	}
+
+	if reports := store.GetReports(); len(reports) == 0 {
+		store.AddReport(models.IncidentReport{ID: "demo-report-1", AlertID: "demo-alert-1", Details: "Incident triaged and container isolated.", Action: "isolate", Timestamp: time.Now()})
+		store.AddReport(models.IncidentReport{ID: "demo-report-2", AlertID: "demo-alert-2", Details: "Policy updated; workload redeployed without privileged flag.", Action: "evaluate", Timestamp: time.Now().Add(-1 * time.Minute)})
+	}
 }
 
 func ensureDefaultAdmin(store storage.Storage) error {

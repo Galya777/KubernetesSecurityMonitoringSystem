@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"time"
 
+	"KubernetesSecurityMonitoringSystem/internal/auth"
 	"KubernetesSecurityMonitoringSystem/internal/kubernetes"
+	"KubernetesSecurityMonitoringSystem/internal/middleware"
 	"KubernetesSecurityMonitoringSystem/internal/models"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
+	"strings"
 
 	"github.com/gorilla/mux"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,9 +23,40 @@ type ResourceHandler struct {
 	K8s     *kubernetes.ClusterManager
 }
 
+func isAdminRequest(r *http.Request) bool {
+	claims, ok := r.Context().Value(middleware.UserContextKey).(*auth.Claims)
+	return ok && claims.Role == models.RoleAdmin
+}
+
+func isDemoID(id string) bool {
+	return strings.HasPrefix(id, "demo-")
+}
+
+func (h *ResourceHandler) GetAlertsJSON(w http.ResponseWriter, r *http.Request) {
+	alerts := h.Storage.GetAlerts()
+	filtered := make([]models.Alert, 0, len(alerts))
+	for _, a := range alerts {
+		if !isAdminRequest(r) && isDemoID(a.ID) {
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+	json.NewEncoder(w).Encode(filtered)
+}
+
 // Cluster Handlers
 func (h *ResourceHandler) GetClusters(w http.ResponseWriter, r *http.Request) {
 	clusters := h.Storage.GetClusters()
+	if !isAdminRequest(r) {
+		filtered := make([]models.Cluster, 0, len(clusters))
+		for _, c := range clusters {
+			if isDemoID(c.ID) {
+				continue
+			}
+			filtered = append(filtered, c)
+		}
+		clusters = filtered
+	}
 	json.NewEncoder(w).Encode(clusters)
 }
 
@@ -77,6 +111,16 @@ func (h *ResourceHandler) DeleteCluster(w http.ResponseWriter, r *http.Request) 
 // Policy Handlers
 func (h *ResourceHandler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 	policies := h.Storage.GetPolicies()
+	if !isAdminRequest(r) {
+		filtered := make([]models.Policy, 0, len(policies))
+		for _, p := range policies {
+			if isDemoID(p.ID) {
+				continue
+			}
+			filtered = append(filtered, p)
+		}
+		policies = filtered
+	}
 	json.NewEncoder(w).Encode(policies)
 }
 
@@ -118,6 +162,9 @@ func (h *ResourceHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 			alerts := h.Storage.GetAlerts()
 			var filteredAlerts []models.Alert
 			for _, a := range alerts {
+				if !isAdminRequest(r) && isDemoID(a.ID) {
+					continue
+				}
 				if (severityFilter == "" || a.Severity == severityFilter) &&
 					(clusterFilter == "" || a.ClusterID == clusterFilter) {
 					filteredAlerts = append(filteredAlerts, a)
@@ -133,6 +180,16 @@ func (h *ResourceHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 // Incident Reports
 func (h *ResourceHandler) GetReports(w http.ResponseWriter, r *http.Request) {
 	reports := h.Storage.GetReports()
+	if !isAdminRequest(r) {
+		filtered := make([]models.IncidentReport, 0, len(reports))
+		for _, rep := range reports {
+			if isDemoID(rep.ID) {
+				continue
+			}
+			filtered = append(filtered, rep)
+		}
+		reports = filtered
+	}
 	json.NewEncoder(w).Encode(reports)
 }
 

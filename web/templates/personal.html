@@ -191,6 +191,9 @@
                 this.fetchUser();
                 this.fetchClusters();
                 this.fetchContainers();
+                setInterval(() => {
+                    this.fetchContainers();
+                }, 10000);
             }
         },
         methods: {
