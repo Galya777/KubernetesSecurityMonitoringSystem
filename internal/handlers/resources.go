@@ -11,6 +11,7 @@ import (
 	"KubernetesSecurityMonitoringSystem/internal/kubernetes"
 	"KubernetesSecurityMonitoringSystem/internal/middleware"
 	"KubernetesSecurityMonitoringSystem/internal/models"
+	"KubernetesSecurityMonitoringSystem/internal/monitor"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
 	"strings"
 
@@ -21,6 +22,7 @@ import (
 type ResourceHandler struct {
 	Storage storage.Storage
 	K8s     *kubernetes.ClusterManager
+	Monitor *monitor.Monitor
 }
 
 func isAdminRequest(r *http.Request) bool {
@@ -98,12 +100,18 @@ func (h *ResourceHandler) CreateCluster(w http.ResponseWriter, r *http.Request) 
 	c.ID = time.Now().Format("20060102150405")
 	c.CreatedAt = time.Now()
 	h.Storage.AddCluster(c)
+	if h.Monitor != nil {
+		h.Monitor.StartCluster(c.ID, c.KubeConfig)
+	}
 	json.NewEncoder(w).Encode(c)
 }
 
 func (h *ResourceHandler) DeleteCluster(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["clusterId"]
+	if h.Monitor != nil {
+		h.Monitor.StopCluster(id)
+	}
 	h.Storage.DeleteCluster(id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -210,6 +218,8 @@ func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
 	switch action {
 	case "isolate":
 		err = h.K8s.IsolatePod(clusterID, cluster.KubeConfig, namespace, podName)
+	case "release":
+		err = h.K8s.ReleasePod(clusterID, cluster.KubeConfig, namespace, podName)
 	case "delete":
 		err = h.K8s.DeletePod(clusterID, cluster.KubeConfig, namespace, podName)
 	case "evaluate":
@@ -220,8 +230,9 @@ func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
 		var allViolations []string
 		for _, p := range policies {
 			if p.Namespace == "" || p.Namespace == namespace {
-				violations := kubernetes.EvaluatePolicy(pod, p)
-				allViolations = append(allViolations, violations...)
+				for _, v := range kubernetes.EvaluatePolicy(pod, p) {
+					allViolations = append(allViolations, v.Message)
+				}
 			}
 		}
 		json.NewEncoder(w).Encode(allViolations)
@@ -286,4 +297,113 @@ func (h *ResourceHandler) DiscoverContainers(w http.ResponseWriter, r *http.Requ
 	}
 
 	json.NewEncoder(w).Encode(result)
+}
+
+// GetContainerLogs streams the real logs of a container running in a pod.
+// Query params: namespace, pod, container (required), tail (default 200), follow.
+func (h *ResourceHandler) GetContainerLogs(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	clusterID := vars["clusterId"]
+
+	cluster, err := h.Storage.GetCluster(clusterID)
+	if err != nil {
+		http.Error(w, "Cluster not found", http.StatusNotFound)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	podName := r.URL.Query().Get("pod")
+	containerName := r.URL.Query().Get("container")
+	if namespace == "" || podName == "" || containerName == "" {
+		http.Error(w, "namespace, pod and container query params are required", http.StatusBadRequest)
+		return
+	}
+
+	var tail int64 = 200
+	if t := r.URL.Query().Get("tail"); t != "" {
+		if _, err := fmt.Sscanf(t, "%d", &tail); err != nil || tail <= 0 {
+			tail = 200
+		}
+	}
+	follow := r.URL.Query().Get("follow") == "true"
+
+	client, err := h.K8s.GetClient(clusterID, cluster.KubeConfig)
+	if err != nil {
+		http.Error(w, "Failed to create Kubernetes client: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	logs, err := kubernetes.GetContainerLogs(client, namespace, podName, containerName, tail, follow)
+	if err != nil {
+		http.Error(w, "Failed to get logs: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(logs)
+}
+
+// StreamContainerLogs proxies a live (follow=true) container log stream to the
+// client, flushing each chunk as it arrives.
+func (h *ResourceHandler) StreamContainerLogs(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	clusterID := vars["clusterId"]
+
+	cluster, err := h.Storage.GetCluster(clusterID)
+	if err != nil {
+		http.Error(w, "Cluster not found", http.StatusNotFound)
+		return
+	}
+
+	namespace := r.URL.Query().Get("namespace")
+	podName := r.URL.Query().Get("pod")
+	containerName := r.URL.Query().Get("container")
+	if namespace == "" || podName == "" || containerName == "" {
+		http.Error(w, "namespace, pod and container query params are required", http.StatusBadRequest)
+		return
+	}
+
+	var tail int64 = 100
+	if t := r.URL.Query().Get("tail"); t != "" {
+		if _, err := fmt.Sscanf(t, "%d", &tail); err != nil || tail <= 0 {
+			tail = 100
+		}
+	}
+
+	client, err := h.K8s.GetClient(clusterID, cluster.KubeConfig)
+	if err != nil {
+		http.Error(w, "Failed to create Kubernetes client: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	stream, err := kubernetes.StreamContainerLogs(r.Context(), client, namespace, podName, containerName, tail, true)
+	if err != nil {
+		http.Error(w, "Failed to open log stream: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer stream.Close()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			return
+		}
+	}
 }

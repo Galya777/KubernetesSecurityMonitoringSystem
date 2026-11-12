@@ -130,7 +130,7 @@
                         <th>Container</th>
                         <th>Image</th>
                         <th>Status</th>
-                        <th v-if="user && user.role === 'Administrator'">Actions</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -141,14 +141,23 @@
                         <td>[[ c.container_name ]]</td>
                         <td>[[ c.image ]]</td>
                         <td>[[ c.status ]]</td>
-                        <td v-if="user && user.role === 'Administrator'">
-                            <button type="button" class="btn btn-danger btn-sm" @click="deleteContainer(c.id)">Delete</button>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" @click="viewLogs(c)">Logs</button>
+                            <button v-if="user && user.role === 'Administrator'" type="button" class="btn btn-danger btn-sm" @click="deleteContainer(c.id)">Delete</button>
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
         <div v-else class="mt-3 text-muted">No containers attached yet.</div>
+    </div>
+
+    <div v-if="logViewer.visible" class="card p-4 mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Live logs: [[ logViewer.namespace ]]/[[ logViewer.pod ]] / [[ logViewer.container ]]</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="stopLogs">Stop</button>
+        </div>
+        <pre class="bg-dark text-light p-3" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;">[[ logViewer.text ]]</pre>
     </div>
 </div>
 
@@ -176,7 +185,16 @@
                 namespace: '',
                 error: ''
             },
-            discoveredContainers: []
+            discoveredContainers: [],
+            logViewer: {
+                visible: false,
+                clusterId: '',
+                namespace: '',
+                pod: '',
+                container: '',
+                text: '',
+                abort: null
+            }
         },
         mounted() {
             this.userId = "{{.UserID}}";
@@ -276,6 +294,61 @@
                 if (!confirm('Delete this container?')) return;
                 axios.delete('/api/containers/' + containerId)
                     .then(() => this.fetchContainers());
+            },
+            viewLogs(c) {
+                this.stopLogs();
+                this.logViewer = {
+                    visible: true,
+                    clusterId: c.cluster_id,
+                    namespace: c.namespace,
+                    pod: c.pod_name,
+                    container: c.container_name,
+                    text: '',
+                    abort: null
+                };
+
+                const url = '/api/clusters/' + encodeURIComponent(c.cluster_id) +
+                    '/containers/logs/stream?namespace=' + encodeURIComponent(c.namespace) +
+                    '&pod=' + encodeURIComponent(c.pod_name) +
+                    '&container=' + encodeURIComponent(c.container_name) +
+                    '&tail=100';
+
+                const controller = new AbortController();
+                this.logViewer.abort = controller;
+
+                fetch(url, { signal: controller.signal, credentials: 'same-origin' })
+                    .then(resp => {
+                        if (!resp.ok || !resp.body) {
+                            this.logViewer.text = 'Failed to open log stream (HTTP ' + resp.status + ')';
+                            return;
+                        }
+                        const reader = resp.body.getReader();
+                        const decoder = new TextDecoder();
+                        const pump = () => reader.read().then(({ done, value }) => {
+                            if (done) return;
+                            this.logViewer.text += decoder.decode(value, { stream: true });
+                            if (this.logViewer.text.length > 200000) {
+                                this.logViewer.text = this.logViewer.text.slice(-100000);
+                            }
+                            const pre = document.querySelector('.card pre');
+                            if (pre) pre.scrollTop = pre.scrollHeight;
+                            return pump();
+                        });
+                        return pump();
+                    })
+                    .catch(err => {
+                        if (err && err.name !== 'AbortError') {
+                            this.logViewer.text += '\n[stream error] ' + err.message;
+                        }
+                    });
+            },
+            stopLogs() {
+                if (this.logViewer.abort) {
+                    this.logViewer.abort.abort();
+                    this.logViewer.abort = null;
+                }
+                this.logViewer.visible = false;
+                this.logViewer.text = '';
             },
             deregister() {
                 if (confirm('Are you sure you want to deregister?')) {

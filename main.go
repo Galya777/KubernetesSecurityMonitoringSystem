@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"KubernetesSecurityMonitoringSystem/internal/kubernetes"
 	"KubernetesSecurityMonitoringSystem/internal/middleware"
 	"KubernetesSecurityMonitoringSystem/internal/models"
+	"KubernetesSecurityMonitoringSystem/internal/monitor"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
 
 	"github.com/gorilla/mux"
@@ -57,11 +59,12 @@ func main() {
 	seedDemoData(store)
 
 	k8sMgr := kubernetes.NewClusterManager()
+	mon := monitor.New(store, k8sMgr)
 
 	// Handlers
 	authH := &handlers.AuthHandler{Storage: store}
 	userH := &handlers.UserHandler{Storage: store}
-	resH := &handlers.ResourceHandler{Storage: store, K8s: k8sMgr}
+	resH := &handlers.ResourceHandler{Storage: store, K8s: k8sMgr, Monitor: mon}
 	contH := &handlers.ContainerHandler{Storage: store}
 
 	r := mux.NewRouter()
@@ -94,6 +97,8 @@ func main() {
 	api.HandleFunc("/clusters", resH.CreateCluster).Methods("POST")
 	api.HandleFunc("/clusters/{clusterId}", resH.DeleteCluster).Methods("DELETE")
 	api.HandleFunc("/clusters/{clusterId}/discover/containers", resH.DiscoverContainers).Methods("GET")
+	api.HandleFunc("/clusters/{clusterId}/containers/logs", resH.GetContainerLogs).Methods("GET")
+	api.HandleFunc("/clusters/{clusterId}/containers/logs/stream", resH.StreamContainerLogs).Methods("GET")
 
 	// Policies API
 	api.HandleFunc("/policies", resH.GetPolicies).Methods("GET")
@@ -123,6 +128,31 @@ func main() {
 
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+
+	// Resume monitoring for clusters that were already registered.
+	for _, c := range store.GetClusters() {
+		mon.StartCluster(c.ID, c.KubeConfig)
+	}
+
+	// Optional: tail a Kubernetes API server audit log for exec/attach detection.
+	// Set KSMS_AUDIT_LOG to the audit log file path on this host and optionally
+	// KSMS_AUDIT_CLUSTER to choose which cluster the alerts belong to.
+	if auditPath := os.Getenv("KSMS_AUDIT_LOG"); auditPath != "" {
+		auditCluster := os.Getenv("KSMS_AUDIT_CLUSTER")
+		if auditCluster == "" {
+			for _, c := range store.GetClusters() {
+				if c.KubeConfig != "" {
+					auditCluster = c.ID
+					break
+				}
+			}
+		}
+		if auditCluster == "" {
+			auditCluster = "audit"
+		}
+		go mon.WatchAuditLog(context.Background(), auditCluster, auditPath)
+		log.Printf("Audit log monitoring enabled for cluster %s: %s", auditCluster, auditPath)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
