@@ -86,4 +86,4 @@ export DB_NAME=${DB_NAME:-ksms}
 export PORT=${PORT:-$PORT}
 
 # Run backend in foreground so IDE console shows logs and you can stop the process
-exec env PGPASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_NAME="$DB_NAME" PORT="$PORT" go run main.go
+exec env PGPASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_NAME="$DB_NAME" PORT="$PORT" go run ./cmd/ksms

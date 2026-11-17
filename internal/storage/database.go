@@ -209,6 +209,8 @@ func (s *DatabaseStorage) initSchema() error {
 			cluster_id TEXT,
 			severity TEXT,
 			message TEXT,
+			namespace TEXT,
+			pod_name TEXT,
 			timestamp TIMESTAMP WITH TIME ZONE
 		)`,
 		`CREATE TABLE IF NOT EXISTS reports (
@@ -221,6 +223,17 @@ func (s *DatabaseStorage) initSchema() error {
 	}
 
 	for _, q := range queries {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
+
+	// Migrate older schemas that predate the namespace/pod_name columns.
+	migrations := []string{
+		`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS namespace TEXT`,
+		`ALTER TABLE alerts ADD COLUMN IF NOT EXISTS pod_name TEXT`,
+	}
+	for _, q := range migrations {
 		if _, err := s.db.Exec(q); err != nil {
 			return err
 		}
@@ -385,12 +398,12 @@ func (s *DatabaseStorage) DeletePolicy(id string) error {
 
 // Alert and Report methods
 func (s *DatabaseStorage) AddAlert(a models.Alert) {
-	s.db.Exec("INSERT INTO alerts (id, cluster_id, severity, message, timestamp) VALUES ($1, $2, $3, $4, $5)",
-		a.ID, a.ClusterID, a.Severity, a.Message, a.Timestamp)
+	s.db.Exec("INSERT INTO alerts (id, cluster_id, severity, message, namespace, pod_name, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		a.ID, a.ClusterID, a.Severity, a.Message, a.Namespace, a.PodName, a.Timestamp)
 }
 
 func (s *DatabaseStorage) GetAlerts() []models.Alert {
-	rows, err := s.db.Query("SELECT id, cluster_id, severity, message, timestamp FROM alerts ORDER BY timestamp DESC")
+	rows, err := s.db.Query("SELECT id, cluster_id, severity, message, namespace, pod_name, timestamp FROM alerts ORDER BY timestamp DESC LIMIT 1000")
 	if err != nil {
 		return nil
 	}
@@ -399,7 +412,7 @@ func (s *DatabaseStorage) GetAlerts() []models.Alert {
 	var alerts []models.Alert
 	for rows.Next() {
 		var a models.Alert
-		if err := rows.Scan(&a.ID, &a.ClusterID, &a.Severity, &a.Message, &a.Timestamp); err != nil {
+		if err := rows.Scan(&a.ID, &a.ClusterID, &a.Severity, &a.Message, &a.Namespace, &a.PodName, &a.Timestamp); err != nil {
 			continue
 		}
 		alerts = append(alerts, a)

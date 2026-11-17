@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"text/template"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"KubernetesSecurityMonitoringSystem/internal/auth"
@@ -21,6 +23,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// pages lists the server-rendered frontend views.
+var pages = []string{
+	"home", "clusters", "alerts", "policies", "register",
+	"login", "personal", "reports", "about",
+}
 
 func main() {
 	var store storage.Storage
@@ -67,16 +75,37 @@ func main() {
 	resH := &handlers.ResourceHandler{Storage: store, K8s: k8sMgr, Monitor: mon}
 	contH := &handlers.ContainerHandler{Storage: store}
 
+	// Parse all page templates once at startup.
+	templates := make(map[string]*template.Template, len(pages))
+	for _, p := range pages {
+		t, err := template.ParseFiles("web/templates/layout.html", "web/templates/"+p+".html")
+		if err != nil {
+			log.Fatalf("Failed to parse template %s: %v", p, err)
+		}
+		templates[p] = t
+	}
+
 	r := mux.NewRouter()
+	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.AuthMiddleware)
+	r.Use(requestLogger)
 
-	// API Routes
+	// Health check (used by load balancers / docker healthchecks)
+	r.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	}).Methods("GET")
+
+	// Public API routes (no JWT required)
+	publicAPI := r.PathPrefix("/api").Subrouter()
+	publicAPI.Handle("/login", middleware.LoginRateLimit(10, time.Minute)(http.HandlerFunc(authH.Login))).Methods("POST")
+	publicAPI.HandleFunc("/register", authH.Register).Methods("POST")
+	publicAPI.HandleFunc("/logout", authH.Logout).Methods("POST")
+
+	// Protected API routes (valid JWT required)
 	api := r.PathPrefix("/api").Subrouter()
-	api.Use(middleware.AuthMiddleware)
+	api.Use(middleware.RequireAuth)
 
-	api.HandleFunc("/login", authH.Login).Methods("POST")
-	api.HandleFunc("/logout", authH.Logout).Methods("POST")
-	api.HandleFunc("/register", authH.Register).Methods("POST")
 	api.HandleFunc("/containers", contH.CreateContainer).Methods("POST")
 	api.HandleFunc("/containers/{containerId}", contH.DeleteContainer).Methods("DELETE")
 
@@ -87,6 +116,7 @@ func main() {
 
 	api.HandleFunc("/users/{userId}", userH.GetUser).Methods("GET")
 	api.HandleFunc("/users/{userId}", userH.UpdateUser).Methods("PUT")
+	api.HandleFunc("/users/{userId}/password", userH.ChangePassword).Methods("POST")
 	api.HandleFunc("/users/{userId}", userH.DeleteUser).Methods("DELETE")
 	api.HandleFunc("/users/{userId}/containers", contH.GetContainersByUser).Methods("GET")
 	api.HandleFunc("/users/{userId}/containers/{containerId}", contH.AttachContainerToUser).Methods("POST")
@@ -103,28 +133,26 @@ func main() {
 	// Policies API
 	api.HandleFunc("/policies", resH.GetPolicies).Methods("GET")
 	api.HandleFunc("/policies", resH.CreatePolicy).Methods("POST")
+	api.HandleFunc("/policies/{policyId}", resH.DeletePolicy).Methods("DELETE")
 
 	// Alerts and Reports API
 	api.HandleFunc("/tests", resH.GetAlerts).Methods("GET")           // As per 4.7 URI
 	api.HandleFunc("/tests/{testId}", resH.GetReports).Methods("GET") // As per 4.8 URI (mapping to reports)
 	api.HandleFunc("/alerts", resH.GetAlertsJSON).Methods("GET")
 	api.HandleFunc("/reports", resH.GetReports).Methods("GET")
+	api.HandleFunc("/reports", resH.CreateReport).Methods("POST")
 
 	api.HandleFunc("/actions/{action}", resH.HandleAction).Methods("POST")
 
-	// Metrics
+	// Metrics (typically scraped by Prometheus inside the cluster network)
 	r.Handle("/metrics", promhttp.Handler())
 
 	// Frontend Views
-	r.HandleFunc("/", serveTemplate("home.html"))
-	r.HandleFunc("/clusters", serveTemplate("clusters.html"))
-	r.HandleFunc("/alerts", serveTemplate("alerts.html"))
-	r.HandleFunc("/policies", serveTemplate("policies.html"))
-	r.HandleFunc("/register", serveTemplate("register.html"))
-	r.HandleFunc("/login", serveTemplate("login.html"))
-	r.HandleFunc("/personal", serveTemplate("personal.html"))
-	r.HandleFunc("/reports", serveTemplate("reports.html"))
-	r.HandleFunc("/about", serveTemplate("about.html"))
+	for _, p := range pages {
+		page := p
+		r.HandleFunc("/"+page, serveTemplate(templates[page])).Methods("GET")
+	}
+	r.HandleFunc("/", serveTemplate(templates["home"])).Methods("GET")
 
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
@@ -156,12 +184,49 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
+		port = os.Getenv("APP_PORT")
+	}
+	if port == "" {
 		port = "8081"
 	}
 	addr := ":" + port
 
-	log.Println("Server starting on", addr)
-	log.Fatal(http.ListenAndServe(addr, r))
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      r,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	go func() {
+		log.Println("Server starting on", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	// Graceful shutdown on SIGINT/SIGTERM.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+	log.Println("Server stopped")
+}
+
+// requestLogger logs method, path and status for every request.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
+	})
 }
 
 func seedDemoData(store storage.Storage) {
@@ -236,10 +301,10 @@ func seedDemoData(store storage.Storage) {
 		}
 	}
 	if !hasDemoAlert1 {
-		store.AddAlert(models.Alert{ID: "demo-alert-1", ClusterID: demoClusterID, Severity: "High", Message: "Suspicious exec detected in container demo-1 (demo-pod-1/app)", Timestamp: time.Now()})
+		store.AddAlert(models.Alert{ID: "demo-alert-1", ClusterID: demoClusterID, Severity: "High", Message: "Suspicious exec detected in container demo-1 (demo-pod-1/app)", Namespace: "default", PodName: "demo-pod-1", Timestamp: time.Now()})
 	}
 	if !hasDemoAlert2 {
-		store.AddAlert(models.Alert{ID: "demo-alert-2", ClusterID: demoClusterID, Severity: "Medium", Message: "Privileged container started: demo-2 (demo-pod-2/app)", Timestamp: time.Now().Add(-2 * time.Minute)})
+		store.AddAlert(models.Alert{ID: "demo-alert-2", ClusterID: demoClusterID, Severity: "Medium", Message: "Privileged container started: demo-2 (demo-pod-2/app)", Namespace: "default", PodName: "demo-pod-2", Timestamp: time.Now().Add(-2 * time.Minute)})
 	}
 
 	if reports := store.GetReports(); len(reports) == 0 {
@@ -290,7 +355,7 @@ func ensureDefaultAdmin(store storage.Storage) error {
 	}
 
 	u := models.User{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:        models.NewID("user"),
 		Email:     adminEmail,
 		Password:  string(hashedPassword),
 		FirstName: "Admin",
@@ -307,14 +372,8 @@ func ensureDefaultAdmin(store storage.Storage) error {
 	return nil
 }
 
-func serveTemplate(name string) http.HandlerFunc {
+func serveTemplate(tmpl *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tmpl, err := template.ParseFiles("web/templates/layout.html", "web/templates/"+name)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		var data struct {
 			IsAuthenticated bool
 			UserID          string
@@ -325,7 +384,6 @@ func serveTemplate(name string) http.HandlerFunc {
 			data.UserID = claims.UserID
 			data.Role = claims.Role
 		}
-		// Handle ExecuteTemplate error explicitly
 		if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 			log.Println("Template execution error:", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)

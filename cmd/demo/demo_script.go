@@ -11,6 +11,10 @@ import (
 
 const baseURL = "http://localhost:8081/api"
 
+func main() {
+	RunDemo()
+}
+
 func RunDemo() {
 	fmt.Println("🚀 Стартиране на демострация на KSMS...")
 

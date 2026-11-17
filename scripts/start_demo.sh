@@ -14,12 +14,12 @@ if [ -f run_server.pid ]; then
   rm -f run_server.pid
 fi
 pkill -f ksms-local || true
-pkill -f 'go run main.go' || true
+pkill -f 'go run ./cmd/ksms' || true
 pkill -f '/.cache/go-build/.*/main' || true
 sleep 1
 
 echo "Building binary..."
-go build -o ksms-local .
+go build -o ksms-local ./cmd/ksms
 
 # If there is no local users file, create one with a demo admin using helper
 LOCAL_FILE=".local_users_demo.json"

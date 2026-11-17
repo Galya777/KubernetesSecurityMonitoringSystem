@@ -156,13 +156,18 @@ func (m *Monitor) processAuditLine(clusterID string, line []byte) {
 
 	key := "audit|" + entry.AuditID + "|" + subresource
 	if m.markNew(clusterID, key) {
-		m.store.AddAlert(models.Alert{
+		alert := models.Alert{
 			ID:        m.nextAlertID(),
 			ClusterID: clusterID,
 			Severity:  "High",
 			Message: fmt.Sprintf("[audit] %s session by user %q from %s on %s (%s %s)",
 				subresource, entry.User.Username, sourceIP, target, entry.Verb, entry.RequestURI),
 			Timestamp: time.Now(),
-		})
+		}
+		if entry.ObjectRef.Resource == "pods" {
+			alert.Namespace = entry.ObjectRef.Namespace
+			alert.PodName = entry.ObjectRef.Name
+		}
+		m.store.AddAlert(alert)
 	}
 }

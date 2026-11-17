@@ -9,33 +9,46 @@ KSMS is a real-time security monitoring system for Kubernetes clusters. It provi
 
 ## 🚀 Features
 
-- **Real-time Monitoring**: Live updates on security incidents using SSE/WebSockets.
-- **Cluster Management**: Connect and monitor multiple Kubernetes clusters.
-- **Policy Enforcement**: Define and apply security policies across namespaces.
-- **Incident Response**: Automated actions (e.g., pod isolation) triggered by policy violations.
-- **Role-Based Access Control (RBAC)**: Secure access for Administrators, Security Analysts, and Students.
-- **Metrics Collection**: Integration with Prometheus for cluster health and security trends.
-- **Web Dashboard**: Clean and intuitive interface built with Go templates and Vue.js.
+- **Real-time Monitoring**: Live pod/event/log monitoring using Kubernetes watches and SSE streaming.
+- **Policy Engine**: Static pod-spec rules (privileged, host namespaces, read-only rootfs, …) plus `log_pattern:<regex>` runtime rules that tail container logs.
+- **Incident Response**: One-click pod isolation (NetworkPolicy-based), release and deletion from the alerts UI.
+- **Cluster Management**: Connect and monitor multiple Kubernetes clusters via kubeconfig.
+- **RBAC**: Role-based access for Administrators, Security Analysts, Instructors and Students.
+- **Audit Log Monitoring**: Optional tailing of the Kubernetes API audit log to detect exec/attach/portforward activity.
+- **Metrics**: Prometheus `/metrics` endpoint plus docker-compose Prometheus integration.
+- **Persistence**: PostgreSQL storage with automatic schema creation and migrations; file/memory fallback for local runs.
+- **Web Dashboard**: Server-rendered UI (Go templates + Vue.js + Bootstrap).
 
 ## 🛠️ Tech Stack
 
-- **Backend**: Go (Golang)
-- **Database**: PostgreSQL (for persistent storage)
-- **Kubernetes Integration**: client-go
-- **Metrics**: Prometheus
-- **Frontend**: Go `html/template`, Vue.js, Tailwind CSS
-- **Authentication**: JWT (JSON Web Tokens)
+- **Backend**: Go (Golang), gorilla/mux
+- **Database**: PostgreSQL (persistent), JSON file / in-memory fallback
+- **Kubernetes Integration**: client-go (watches, logs, NetworkPolicy isolation)
+- **Metrics**: Prometheus client + server
+- **Frontend**: Go `html/template`, Vue.js, Bootstrap
+- **Authentication**: JWT (JSON Web Tokens, HttpOnly cookie + Bearer)
 
 ## 🏗️ Architecture
 
-The system consists of a Go backend that communicates with Kubernetes API servers to monitor cluster state. Security policies are stored in a PostgreSQL database and evaluated against incoming events. Alerts are pushed to the frontend in real-time.
+```
+cmd/ksms        application entrypoint (HTTP server, routes, graceful shutdown)
+cmd/demo        demo script exercising the API
+internal/
+  auth          JWT issuing/verification
+  handlers      REST API + SSE handlers
+  kubernetes    client-go wrapper: clients, metrics, watches, isolation
+  middleware    auth, RBAC, security headers, login rate limiting
+  models        domain types
+  monitor       cluster/pod/log/audit watchers -> alerts
+  storage       Storage interface + Postgres / file / memory implementations
+web/templates   server-rendered pages
+```
 
 ## 📋 Prerequisites
 
 - Go 1.21+
-- PostgreSQL
-- Kubernetes cluster (or Minikube/Kind)
-- `kubectl` configured to access your cluster
+- PostgreSQL (optional — the app falls back to file/memory storage)
+- Kubernetes cluster (or Minikube/Kind) for real monitoring
 
 ## ⚙️ Installation & Setup
 
@@ -45,79 +58,77 @@ The system consists of a Go backend that communicates with Kubernetes API server
    cd KubernetesSecurityMonitoringSystem
    ```
 
-2. **Install Dependencies**:
+2. **Install dependencies**:
    ```bash
    go mod download
    ```
 
-3. **Run the Application**:
+3. **Configure** (optional but recommended):
    ```bash
-   go run main.go
+   cp .env.example .env
+   # set JWT_SECRET at minimum
+   ```
+
+4. **Run the application**:
+   ```bash
+   go run ./cmd/ksms
+   ```
+   or with Docker:
+   ```bash
+   docker compose up --build
    ```
 
 ## 🔧 Configuration
 
-The application can be configured using environment variables:
+See `.env.example` for the full list. Key variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DB_HOST` | PostgreSQL host | `localhost` |
-| `DB_PORT` | PostgreSQL port | `5433` |
-| `DB_USER` | PostgreSQL user | `postgres` |
-| `DB_PASSWORD` | PostgreSQL password | `admin123` |
-| `DB_NAME` | PostgreSQL database name | `ksms` |
-| `APP_PORT` | Application port | `8081` |
-| `JWT_SECRET` | Secret key for JWT signing | `your-secret-key` |
+| `PORT` / `APP_PORT` | HTTP listen port | `8081` |
+| `JWT_SECRET` | JWT signing secret (random per-process if unset) | — |
+| `COOKIE_SECURE` | Set `true` behind HTTPS | `false` |
+| `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` | PostgreSQL connection | `localhost:5433` |
+| `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` | Seeded admin account | `admin@ksms.io` / `admin123` |
+| `KSMS_AUDIT_LOG` | Path to kube-apiserver audit log for exec/attach detection | — |
+| `KSMS_AUDIT_CLUSTER` | Cluster ID audit alerts are attributed to | first cluster |
 
 ## 🧪 API Documentation
 
-The system provides a RESTful API for integration:
+All `/api/*` endpoints except `login`, `register` and `logout` require a valid JWT (cookie or `Authorization: Bearer`).
 
-- `POST /api/login` - Authenticate and receive a JWT.
-- `GET /api/clusters` - List managed clusters.
-- `POST /api/policies` - Create a new security policy.
-- `GET /api/users` - Manage system users (Admin only).
+- `POST /api/login` · `POST /api/register` · `POST /api/logout` — auth (login is rate-limited)
+- `GET /healthz` — liveness probe
+- `GET/POST /api/clusters`, `DELETE /api/clusters/{id}` — cluster management (manager roles)
+- `GET /api/clusters/{id}/discover/containers` — list real pods/containers
+- `GET /api/clusters/{id}/containers/logs[/stream]` — container logs
+- `GET/POST /api/policies`, `DELETE /api/policies/{id}` — policy management
+- `GET /api/tests` (SSE), `GET /api/alerts` — real-time alerts
+- `GET/POST /api/reports` — incident reports
+- `POST /api/actions/{isolate|release|delete|evaluate}` — incident response
+- `GET /api/users`, `GET/PUT/DELETE /api/users/{id}`, `POST /api/users/{id}/password` — user management
+- `GET /metrics` — Prometheus metrics
 
 ## 🗄️ Database Schema
 
-The system uses the following tables in PostgreSQL:
+Tables: `users`, `clusters`, `policies`, `alerts`, `reports`, `containers`, `user_containers`.
+Created automatically on startup; schema migrations (e.g. new alert columns) are applied idempotently.
 
-- `users`: Stores user profiles, hashed passwords, and roles.
-- `clusters`: Managed Kubernetes cluster configurations and connection status.
-- `policies`: Security policies defined for clusters.
-- `alerts`: Security incidents detected in real-time.
-- `reports`: Detailed investigation reports for incidents.
+## 🧪 Testing & Demo
 
-Database tables are automatically created on first run if they don't exist.
+```bash
+# unit tests
+go test ./...
 
-## 🧪 Тестване и Демонстрация
+# automated API demo (server must be running)
+go run ./cmd/demo
+```
 
-За да тествате системата бързо и лесно, следвайте тези стъпки:
-
-### 1. Автоматизирана Демонстрация
-Създаден е скрипт, който автоматично регистрира потребител, влиза в системата и тества основните API ендпоинти.
-
-1. Стартирайте сървъра:
-   ```bash
-   go run main.go
-   ```
-2. В друг терминал изпълнете демо скрипта:
-   ```bash
-   go run demo_script.go
-   ```
-
-### 2. Ръчно Тестване (Web UI)
-След като стартирате сървъра, отворете `http://localhost:8081` в браузъра си.
-
-- **Login**: Използвайте `admin@ksms.io` / `admin123` (след като сте пуснали демо скрипта).
-- **Clusters**: Добавете вашия клъстер, като поставите съдържанието на вашия `~/.kube/config` (base64 или текст).
-- **Alerts**: Наблюдавайте събитията в реално време.
+Manual UI testing: open `http://localhost:8081`, log in with the seeded admin, add a cluster by pasting its kubeconfig, define a policy with rules, and watch alerts arrive in real time.
 
 ## 👤 Author
 
-**Galya Dodova**
-- FN: 45616
+**Galya Dodova** — FN: 45616
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see [LICENSE](LICENSE).

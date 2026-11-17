@@ -16,9 +16,21 @@
                 <textarea v-model="newPolicy.description" class="form-control"></textarea>
             </div>
             <div class="mb-3">
-                <label>Namespace</label>
-                <input type="text" v-model="newPolicy.namespace" class="form-control" required>
+                <label>Namespace (empty = all namespaces)</label>
+                <input type="text" v-model="newPolicy.namespace" class="form-control" placeholder="default">
             </div>
+            <div class="mb-3">
+                <label>Rules (one per line)</label>
+                <textarea v-model="newPolicy.rulesText" class="form-control" rows="4"
+                    placeholder="no_privileged=true&#10;runasnonroot: true&#10;hostnetwork: false&#10;log_pattern:password\s*=&#10;"></textarea>
+                <small class="text-muted">
+                    Static rules: <code>no_privileged=true</code>, <code>runasnonroot: true</code>,
+                    <code>hostnetwork: false</code>, <code>hostpid: false</code>, <code>hostipc: false</code>,
+                    <code>readonlyrootfilesystem: true</code>, <code>allowprivilegeescalation: false</code>.
+                    Runtime rule: <code>log_pattern:&lt;regex&gt;</code> matches container logs.
+                </small>
+            </div>
+            <div v-if="formError" class="alert alert-danger">[[ formError ]]</div>
             <button type="submit" class="btn btn-success">Save Policy</button>
         </form>
     </div>
@@ -29,13 +41,22 @@
                 <th>Name</th>
                 <th>Namespace</th>
                 <th>Description</th>
+                <th>Rules</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
             <tr v-for="policy in policies" :key="policy.id">
                 <td>[[ policy.name ]]</td>
-                <td>[[ policy.namespace ]]</td>
+                <td>[[ policy.namespace || 'all' ]]</td>
                 <td>[[ policy.description ]]</td>
+                <td><code v-for="rule in policy.rules" :key="rule" class="me-1">[[ rule ]]</code></td>
+                <td>
+                    <button class="btn btn-outline-danger btn-sm" @click="deletePolicy(policy.id)">Delete</button>
+                </td>
+            </tr>
+            <tr v-if="policies.length === 0">
+                <td colspan="5" class="text-center text-muted">No policies defined yet.</td>
             </tr>
         </tbody>
     </table>
@@ -48,21 +69,39 @@
         data: {
             policies: [],
             showForm: false,
-            newPolicy: { name: '', description: '', namespace: '' }
+            formError: '',
+            newPolicy: { name: '', description: '', namespace: '', rulesText: '' }
         },
         mounted() {
             this.fetchPolicies();
         },
         methods: {
             fetchPolicies() {
-                axios.get('/api/policies').then(res => this.policies = res.data);
+                axios.get('/api/policies').then(res => this.policies = res.data || []);
             },
             createPolicy() {
-                axios.post('/api/policies', this.newPolicy).then(() => {
+                this.formError = '';
+                var rules = this.newPolicy.rulesText
+                    .split('\n')
+                    .map(function (r) { return r.trim(); })
+                    .filter(function (r) { return r.length > 0; });
+                var payload = {
+                    name: this.newPolicy.name,
+                    description: this.newPolicy.description,
+                    namespace: this.newPolicy.namespace,
+                    rules: rules
+                };
+                axios.post('/api/policies', payload).then(() => {
                     this.fetchPolicies();
                     this.showForm = false;
-                    this.newPolicy = { name: '', description: '', namespace: '' };
+                    this.newPolicy = { name: '', description: '', namespace: '', rulesText: '' };
+                }).catch(err => {
+                    this.formError = (err && err.response && err.response.data) ? err.response.data : 'Failed to create policy';
                 });
+            },
+            deletePolicy(id) {
+                if (!confirm('Delete this policy?')) return;
+                axios.delete('/api/policies/' + id).then(() => this.fetchPolicies());
             }
         }
     });

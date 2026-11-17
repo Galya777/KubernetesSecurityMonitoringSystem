@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"KubernetesSecurityMonitoringSystem/internal/auth"
@@ -13,7 +15,6 @@ import (
 	"KubernetesSecurityMonitoringSystem/internal/models"
 	"KubernetesSecurityMonitoringSystem/internal/monitor"
 	"KubernetesSecurityMonitoringSystem/internal/storage"
-	"strings"
 
 	"github.com/gorilla/mux"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,8 +31,65 @@ func isAdminRequest(r *http.Request) bool {
 	return ok && claims.Role == models.RoleAdmin
 }
 
+// canManageCluster returns true for roles allowed to mutate clusters, policies
+// and execute incident-response actions.
+func canManageCluster(r *http.Request) bool {
+	claims, ok := r.Context().Value(middleware.UserContextKey).(*auth.Claims)
+	if !ok {
+		return false
+	}
+	switch claims.Role {
+	case models.RoleAdmin, models.RoleSecurityAnalyst, models.RoleInstructor:
+		return true
+	}
+	return false
+}
+
+func requireManager(w http.ResponseWriter, r *http.Request) bool {
+	if !canManageCluster(r) {
+		http.Error(w, "Forbidden: insufficient role", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// sanitizeCluster removes sensitive connection data before a cluster is sent
+// to API clients. The kubeconfig stays in storage for server-side use only.
+func sanitizeCluster(c models.Cluster) models.Cluster {
+	c.KubeConfig = ""
+	return c
+}
+
+func sanitizeClusters(in []models.Cluster) []models.Cluster {
+	out := make([]models.Cluster, len(in))
+	for i, c := range in {
+		out[i] = sanitizeCluster(c)
+	}
+	return out
+}
+
 func isDemoID(id string) bool {
 	return strings.HasPrefix(id, "demo-")
+}
+
+// validateRule performs a lightweight sanity check on a policy rule. Static
+// pod-spec rules are matched by name; "log_pattern:<regex>" rules must compile.
+func validateRule(rule string) error {
+	trimmed := strings.TrimSpace(rule)
+	if trimmed == "" {
+		return fmt.Errorf("rule is empty")
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "log_pattern:") {
+		expr := strings.TrimSpace(trimmed[len("log_pattern:"):])
+		if expr == "" {
+			return fmt.Errorf("log_pattern rule has no expression")
+		}
+		if _, err := regexp.Compile(expr); err != nil {
+			return fmt.Errorf("invalid log_pattern regex: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h *ResourceHandler) GetAlertsJSON(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +117,14 @@ func (h *ResourceHandler) GetClusters(w http.ResponseWriter, r *http.Request) {
 		}
 		clusters = filtered
 	}
+	clusters = sanitizeClusters(clusters)
 	json.NewEncoder(w).Encode(clusters)
 }
 
 func (h *ResourceHandler) CreateCluster(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
 	var c models.Cluster
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -97,16 +159,19 @@ func (h *ResourceHandler) CreateCluster(w http.ResponseWriter, r *http.Request) 
 		c.Status = "Error"
 	}
 
-	c.ID = time.Now().Format("20060102150405")
+	c.ID = models.NewID("cluster")
 	c.CreatedAt = time.Now()
 	h.Storage.AddCluster(c)
 	if h.Monitor != nil {
 		h.Monitor.StartCluster(c.ID, c.KubeConfig)
 	}
-	json.NewEncoder(w).Encode(c)
+	json.NewEncoder(w).Encode(sanitizeCluster(c))
 }
 
 func (h *ResourceHandler) DeleteCluster(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
 	vars := mux.Vars(r)
 	id := vars["clusterId"]
 	if h.Monitor != nil {
@@ -129,19 +194,49 @@ func (h *ResourceHandler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 		}
 		policies = filtered
 	}
+	policies = sanitizePolicies(policies)
 	json.NewEncoder(w).Encode(policies)
 }
 
+// sanitizePolicies strips nothing today but keeps a single place to redact
+// sensitive policy fields if they are added later.
+func sanitizePolicies(in []models.Policy) []models.Policy { return in }
+
 func (h *ResourceHandler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
 	var p models.Policy
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	p.ID = time.Now().Format("20060102150405")
+	if p.Name == "" {
+		http.Error(w, "policy name is required", http.StatusBadRequest)
+		return
+	}
+	for _, rule := range p.Rules {
+		if err := validateRule(rule); err != nil {
+			http.Error(w, fmt.Sprintf("invalid rule %q: %v", rule, err), http.StatusBadRequest)
+			return
+		}
+	}
+	p.ID = models.NewID("policy")
 	p.CreatedAt = time.Now()
 	h.Storage.AddPolicy(p)
 	json.NewEncoder(w).Encode(p)
+}
+
+func (h *ResourceHandler) DeletePolicy(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
+	id := mux.Vars(r)["policyId"]
+	if err := h.Storage.DeletePolicy(id); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Alert Handlers (SSE placeholder)
@@ -201,8 +296,32 @@ func (h *ResourceHandler) GetReports(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(reports)
 }
 
+// CreateReport records an incident-response action taken on an alert.
+func (h *ResourceHandler) CreateReport(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
+	var rep models.IncidentReport
+	if err := json.NewDecoder(r.Body).Decode(&rep); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if rep.AlertID == "" || rep.Details == "" {
+		http.Error(w, "alert_id and details are required", http.StatusBadRequest)
+		return
+	}
+	rep.ID = models.NewID("report")
+	rep.Timestamp = time.Now()
+	h.Storage.AddReport(rep)
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(rep)
+}
+
 // Action handlers for Incident Response
 func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
+	if !requireManager(w, r) {
+		return
+	}
 	vars := mux.Vars(r)
 	action := vars["action"] // isolate, delete, evaluate
 	clusterID := r.URL.Query().Get("clusterId")
@@ -224,8 +343,16 @@ func (h *ResourceHandler) HandleAction(w http.ResponseWriter, r *http.Request) {
 		err = h.K8s.DeletePod(clusterID, cluster.KubeConfig, namespace, podName)
 	case "evaluate":
 		// Example of policy evaluation
-		client, _ := h.K8s.GetClient(clusterID, cluster.KubeConfig)
-		pod, _ := client.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		client, err := h.K8s.GetClient(clusterID, cluster.KubeConfig)
+		if err != nil {
+			http.Error(w, "Failed to create Kubernetes client: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		pod, err := client.CoreV1().Pods(namespace).Get(context.TODO(), podName, metav1.GetOptions{})
+		if err != nil {
+			http.Error(w, "Failed to get pod: "+err.Error(), http.StatusNotFound)
+			return
+		}
 		policies := h.Storage.GetPolicies()
 		var allViolations []string
 		for _, p := range policies {

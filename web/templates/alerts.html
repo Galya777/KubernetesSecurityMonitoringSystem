@@ -1,16 +1,44 @@
 {{define "content"}}
 <div id="app">
     <h2>Real-time Alerts</h2>
+    <div class="row mb-3">
+        <div class="col-md-3">
+            <select v-model="severityFilter" class="form-select" @change="applyFilters">
+                <option value="">All severities</option>
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select v-model="clusterFilter" class="form-select" @change="applyFilters">
+                <option value="">All clusters</option>
+                <option v-for="c in clusters" :key="c.id" :value="c.id">[[ c.name ]]</option>
+            </select>
+        </div>
+    </div>
+    <div v-if="error" class="alert alert-warning">[[ error ]]</div>
     <div class="list-group">
-        <div v-for="alert in alerts" :key="alert.id" class="list-group-item list-group-item-danger">
+        <div v-for="alert in filteredAlerts" :key="alert.id" class="list-group-item" :class="severityClass(alert.severity)">
             <div class="d-flex w-100 justify-content-between">
                 <h5 class="mb-1">[[ alert.severity ]]</h5>
-                <small>[[ alert.timestamp ]]</small>
+                <small>[[ formatTime(alert.timestamp) ]]</small>
             </div>
             <p class="mb-1">[[ alert.message ]]</p>
-            <small>Cluster: [[ alert.cluster_id ]]</small>
+            <small>
+                Cluster: [[ alert.cluster_id ]]
+                <span v-if="alert.namespace"> | Namespace: [[ alert.namespace ]]</span>
+                <span v-if="alert.pod_name"> | Pod: [[ alert.pod_name ]]</span>
+            </small>
+            <div class="mt-2" v-if="alert.pod_name && canManage">
+                <button class="btn btn-warning btn-sm me-1" @click="act(alert, 'isolate')">Isolate</button>
+                <button class="btn btn-success btn-sm me-1" @click="act(alert, 'release')">Release</button>
+                <button class="btn btn-danger btn-sm me-1" @click="act(alert, 'delete')">Delete Pod</button>
+                <button class="btn btn-outline-secondary btn-sm" @click="report(alert)">Log Report</button>
+            </div>
         </div>
-        <div v-if="alerts.length === 0" class="text-center p-5">
+        <div v-if="filteredAlerts.length === 0" class="text-center p-5">
             <p>Waiting for alerts...</p>
         </div>
     </div>
@@ -22,27 +50,73 @@
         delimiters: ['[[', ']]'],
         data: {
             alerts: [],
-            error: ''
+            clusters: [],
+            severityFilter: '',
+            clusterFilter: '',
+            error: '',
+            canManage: ["Administrator", "Security Analyst", "Instructor"].indexOf("{{.Role}}") >= 0
+        },
+        computed: {
+            filteredAlerts() {
+                return (this.alerts || []).filter(a => {
+                    if (this.severityFilter && a.severity !== this.severityFilter) return false;
+                    if (this.clusterFilter && a.cluster_id !== this.clusterFilter) return false;
+                    return true;
+                });
+            }
         },
         mounted() {
-            axios.get('/api/alerts')
-                .then(res => {
-                    this.alerts = res.data || [];
-                })
-                .catch(() => {
-                    this.alerts = [];
-                });
+            axios.get('/api/clusters').then(res => { this.clusters = res.data || []; }).catch(() => {});
+            axios.get('/api/alerts').then(res => { this.alerts = res.data || []; }).catch(() => {});
 
             const eventSource = new EventSource('/api/tests');
             eventSource.onmessage = (event) => {
-                const newAlerts = JSON.parse(event.data);
-                if (newAlerts) {
-                    this.alerts = newAlerts;
-                }
+                try {
+                    const newAlerts = JSON.parse(event.data);
+                    if (newAlerts) {
+                        this.alerts = newAlerts;
+                    }
+                } catch (e) { /* ignore malformed frames */ }
             };
             eventSource.onerror = () => {
                 this.error = 'Failed to connect to alerts stream. Please login again.';
             };
+        },
+        methods: {
+            severityClass(sev) {
+                if (sev === 'Critical' || sev === 'High') return 'list-group-item-danger';
+                if (sev === 'Medium') return 'list-group-item-warning';
+                return 'list-group-item-info';
+            },
+            formatTime(ts) {
+                if (!ts) return '';
+                return new Date(ts).toLocaleString();
+            },
+            applyFilters() { /* computed property handles filtering */ },
+            act(alert, action) {
+                var url = '/api/actions/' + action +
+                    '?clusterId=' + encodeURIComponent(alert.cluster_id) +
+                    '&namespace=' + encodeURIComponent(alert.namespace || '') +
+                    '&podName=' + encodeURIComponent(alert.pod_name || '');
+                axios.post(url).then(() => {
+                    alert('Action ' + action + ' executed');
+                }).catch(err => {
+                    alert('Action failed: ' + ((err.response && err.response.data) || err.message));
+                });
+            },
+            report(alert) {
+                var details = prompt('Incident report details:', 'Action taken on alert ' + alert.id);
+                if (details === null) return;
+                axios.post('/api/reports', {
+                    alert_id: alert.id,
+                    details: details,
+                    action_taken: 'manual_review'
+                }).then(() => {
+                    alert('Report saved');
+                }).catch(err => {
+                    alert('Failed to save report: ' + ((err.response && err.response.data) || err.message));
+                });
+            }
         }
     });
 </script>

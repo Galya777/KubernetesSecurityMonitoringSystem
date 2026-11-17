@@ -12,5 +12,5 @@ export DB_NAME=${DB_NAME:-ksms}
 export PORT
 
 echo "[run_backend] Running backend on :$PORT connecting to $DB_HOST:$DB_PORT"
-exec env PGPASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_NAME="$DB_NAME" PORT="$PORT" go run main.go
+exec env PGPASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_NAME="$DB_NAME" PORT="$PORT" go run ./cmd/ksms
 

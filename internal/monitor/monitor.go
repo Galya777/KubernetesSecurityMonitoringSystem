@@ -227,6 +227,8 @@ func (m *Monitor) evaluatePod(clusterID string, client *kubecore.Clientset, pod 
 					ClusterID: clusterID,
 					Severity:  v.Severity,
 					Message:   fmt.Sprintf("[%s] %s in %s/%s", p.Name, v.Message, pod.Namespace, pod.Name),
+					Namespace: pod.Namespace,
+					PodName:   pod.Name,
 					Timestamp: time.Now(),
 				})
 			}
@@ -348,6 +350,8 @@ func (m *Monitor) tailContainerLogs(ctx context.Context, clusterID string, clien
 							ClusterID: clusterID,
 							Severity:  "High",
 							Message:   fmt.Sprintf("[log_pattern] %q matched in %s/%s/%s: %s", p.rule, namespace, podName, containerName, truncated),
+							Namespace: namespace,
+							PodName:   podName,
 							Timestamp: time.Now(),
 						})
 					}

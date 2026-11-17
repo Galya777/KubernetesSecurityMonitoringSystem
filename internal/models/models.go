@@ -63,6 +63,8 @@ type Alert struct {
 	ClusterID string    `json:"cluster_id"`
 	Severity  string    `json:"severity"`
 	Message   string    `json:"message"`
+	Namespace string    `json:"namespace,omitempty"`
+	PodName   string    `json:"pod_name,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 

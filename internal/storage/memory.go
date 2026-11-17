@@ -196,17 +196,24 @@ func (s *MemoryStorage) DeletePolicy(id string) error {
 	return nil
 }
 
+const maxAlerts = 1000
+
 // Alert and Report methods
 func (s *MemoryStorage) AddAlert(a models.Alert) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.alerts = append(s.alerts, a)
+	if len(s.alerts) > maxAlerts {
+		s.alerts = s.alerts[len(s.alerts)-maxAlerts:]
+	}
 }
 
 func (s *MemoryStorage) GetAlerts() []models.Alert {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.alerts
+	out := make([]models.Alert, len(s.alerts))
+	copy(out, s.alerts)
+	return out
 }
 
 func (s *MemoryStorage) AddReport(r models.IncidentReport) {
@@ -218,7 +225,9 @@ func (s *MemoryStorage) AddReport(r models.IncidentReport) {
 func (s *MemoryStorage) GetReports() []models.IncidentReport {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.reports
+	out := make([]models.IncidentReport, len(s.reports))
+	copy(out, s.reports)
+	return out
 }
 
 // Container methods

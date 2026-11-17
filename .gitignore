@@ -1,0 +1,30 @@
+# Build output
+/bin/
+/dist/
+/ksms
+/ksms-bin
+/ksms-local
+/ksms-demo
+*.exe
+*.test
+*.out
+*.zip
+coverage.*
+
+# Runtime artefacts
+*.log
+*.pid
+/data/
+ksms-data.json
+ksms-data.json.tmp*
+
+# Local credential / user stores (contain password hashes)
+.local_users*.json
+.local_users*.json.bak
+.env
+.env.*
+!.env.example
+
+# Tooling
+.zenflow/
+.DS_Store
