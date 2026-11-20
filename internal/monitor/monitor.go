@@ -231,6 +231,14 @@ func (m *Monitor) evaluatePod(clusterID string, client *kubecore.Clientset, pod 
 					PodName:   pod.Name,
 					Timestamp: time.Now(),
 				})
+				// Auto-block pods that match malware/blocked-image signatures.
+				if v.Rule == "malware_image" || v.Severity == "Critical" {
+					if c, err := m.store.GetCluster(clusterID); err == nil {
+						if err := m.k8s.IsolatePod(clusterID, c.KubeConfig, pod.Namespace, pod.Name); err == nil {
+							log.Printf("[monitor] auto-isolated pod %s/%s due to %s", pod.Namespace, pod.Name, v.Rule)
+						}
+					}
+				}
 			}
 		}
 	}

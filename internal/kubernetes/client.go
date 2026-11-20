@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -353,6 +354,18 @@ func evaluateRule(pod *v1.Pod, rule string) []Violation {
 		return checkReadOnlyRootFilesystem(pod)
 	case "allowprivilegeescalation: false", "no_privilege_escalation":
 		return checkAllowPrivilegeEscalation(pod)
+	case "no_latest_tag", "no-latest-tag", "image_no_latest=true":
+		return checkLatestTag(pod)
+	case "trusted_registry", "trusted-registry", "image_trusted_registry=true":
+		return checkTrustedRegistry(pod)
+	case "no_added_capabilities", "drop_all_capabilities", "capabilities_drop_all=true":
+		return checkCapabilities(pod)
+	case "resource_limits", "require_resource_limits", "resources_limits=true":
+		return checkResourceLimits(pod)
+	case "no_hostpath_volumes", "no_host_path", "hostpath=false":
+		return checkHostPathVolumes(pod)
+	case "malware_image", "virus_scan", "block_malware=true":
+		return checkBlockedImages(pod)
 	default:
 		// Unknown or runtime-only rules (e.g. "disallow_exec=true") cannot be
 		// evaluated statically from the pod spec.
@@ -429,6 +442,98 @@ func checkAllowPrivilegeEscalation(pod *v1.Pod) []Violation {
 				Message:  fmt.Sprintf("Container %s allows privilege escalation", c.Name),
 				Severity: "Medium",
 			})
+		}
+	}
+	return out
+}
+
+func checkLatestTag(pod *v1.Pod) []Violation {
+	var out []Violation
+	for _, c := range pod.Spec.Containers {
+		if strings.HasSuffix(c.Image, ":latest") || !strings.Contains(c.Image, ":") {
+			out = append(out, Violation{Rule: "no_latest_tag", Message: fmt.Sprintf("Container %s uses :latest or untagged image", c.Name), Severity: "Medium"})
+		}
+	}
+	return out
+}
+
+func checkTrustedRegistry(pod *v1.Pod) []Violation {
+	trusted := strings.Split(os.Getenv("KSMS_TRUSTED_REGISTRIES"), ",")
+	var out []Violation
+	for _, c := range pod.Spec.Containers {
+		ok := false
+		for _, t := range trusted {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if strings.HasPrefix(c.Image, t) {
+				ok = true
+				break
+			}
+		}
+		if len(trusted) > 0 && strings.TrimSpace(trusted[0]) != "" && !ok {
+			out = append(out, Violation{Rule: "trusted_registry", Message: fmt.Sprintf("Container %s image not from trusted registry", c.Name), Severity: "High"})
+		}
+	}
+	return out
+}
+
+func checkCapabilities(pod *v1.Pod) []Violation {
+	var out []Violation
+	for _, c := range pod.Spec.Containers {
+		if c.SecurityContext == nil || c.SecurityContext.Capabilities == nil {
+			out = append(out, Violation{Rule: "capabilities_drop_all", Message: fmt.Sprintf("Container %s does not drop all capabilities", c.Name), Severity: "Medium"})
+			continue
+		}
+		droppedAll := false
+		for _, cap := range c.SecurityContext.Capabilities.Drop {
+			if strings.EqualFold(string(cap), "ALL") {
+				droppedAll = true
+			}
+		}
+		if !droppedAll {
+			out = append(out, Violation{Rule: "capabilities_drop_all", Message: fmt.Sprintf("Container %s does not drop ALL capabilities", c.Name), Severity: "Medium"})
+		}
+		if len(c.SecurityContext.Capabilities.Add) > 0 {
+			out = append(out, Violation{Rule: "no_added_capabilities", Message: fmt.Sprintf("Container %s adds capabilities: %v", c.Name, c.SecurityContext.Capabilities.Add), Severity: "High"})
+		}
+	}
+	return out
+}
+
+func checkResourceLimits(pod *v1.Pod) []Violation {
+	var out []Violation
+	for _, c := range pod.Spec.Containers {
+		if c.Resources.Limits == nil || c.Resources.Limits.Cpu().IsZero() || c.Resources.Limits.Memory().IsZero() {
+			out = append(out, Violation{Rule: "resource_limits", Message: fmt.Sprintf("Container %s has no CPU/memory limits", c.Name), Severity: "Low"})
+		}
+	}
+	return out
+}
+
+func checkHostPathVolumes(pod *v1.Pod) []Violation {
+	var out []Violation
+	for _, v := range pod.Spec.Volumes {
+		if v.HostPath != nil {
+			out = append(out, Violation{Rule: "no_hostpath_volumes", Message: fmt.Sprintf("Pod uses hostPath volume %s", v.Name), Severity: "High"})
+		}
+	}
+	return out
+}
+
+func checkBlockedImages(pod *v1.Pod) []Violation {
+	blocked := strings.Split(os.Getenv("KSMS_BLOCKED_IMAGES"), ",")
+	var out []Violation
+	for _, c := range pod.Spec.Containers {
+		for _, b := range blocked {
+			b = strings.TrimSpace(b)
+			if b == "" {
+				continue
+			}
+			if strings.Contains(c.Image, b) {
+				out = append(out, Violation{Rule: "malware_image", Message: fmt.Sprintf("Container %s image matches blocked/malware signature %s", c.Name, b), Severity: "Critical"})
+			}
 		}
 	}
 	return out
